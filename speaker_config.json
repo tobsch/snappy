@@ -2,15 +2,15 @@
   "version": "2.0",
   "amplifiers": {
     "amp1": {
-      "card": "GAB8",
+      "card": "amp1",
       "channels": 8
     },
     "amp2": {
-      "card": "GAB8_1",
+      "card": "amp2",
       "channels": 8
     },
     "amp3": {
-      "card": "GAB8_2",
+      "card": "amp3",
       "channels": 8
     }
   },

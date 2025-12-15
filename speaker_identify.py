@@ -19,7 +19,8 @@ from pathlib import Path
 CONFIG_FILE = Path(__file__).parent / "speaker_config.json"
 
 # Expected card names for Wondom GAB8 devices
-GAB8_CARD_NAMES = ["GAB8", "GAB8_1", "GAB8_2"]
+# These are set via udev rules in /etc/udev/rules.d/99-wondom-gab8.rules
+GAB8_CARD_NAMES = ["amp1", "amp2", "amp3"]
 
 
 def discover_devices():

@@ -33,6 +33,46 @@ make
 sudo make install
 ```
 
+## Persistent Device Naming (udev)
+
+By default, USB devices get names like `GAB8`, `GAB8_1`, `GAB8_2` based on enumeration order, which can change between reboots or when USB devices are reconnected. This project uses udev rules to assign persistent names (`amp1`, `amp2`, `amp3`) based on USB port path.
+
+### Installation
+
+```bash
+# Install the udev rules
+sudo cp devconfig/99-wondom-gab8.rules /etc/udev/rules.d/
+
+# Reload rules and trigger
+sudo udevadm control --reload-rules && sudo udevadm trigger
+
+# Verify the new names
+cat /proc/asound/cards
+# Should show: amp1, amp2, amp3 instead of GAB8, GAB8_1, GAB8_2
+```
+
+### How It Works
+
+The udev rules in `devconfig/99-wondom-gab8.rules` match GAB8 devices by their USB path and rename them:
+
+| USB Path | ALSA Card Name |
+|----------|----------------|
+| `platform-xhci-hcd.0-usb-0:2:1.1` | amp1 |
+| `platform-xhci-hcd.1-usb-0:2:1.1` | amp2 |
+| `platform-xhci-hcd.1-usb-0:1.4:1.1` | amp3 |
+
+**Important:** The names are bound to USB ports, not to physical amplifier units. If you move an amplifier to a different USB port, you'll need to update the udev rules to match. Label your USB ports or cables to keep track.
+
+### Customizing for Your Setup
+
+If your USB paths differ, find your current paths with:
+
+```bash
+udevadm info -q all /dev/snd/controlC2 | grep "^E: ID_PATH="
+```
+
+Then edit the rules file to match your paths before installing.
+
 ## Usage
 
 ### 1. Identify Speakers
@@ -160,8 +200,8 @@ Speaker mappings are stored in `speaker_config.json`:
 {
   "version": "2.0",
   "amplifiers": {
-    "amp1": { "card": "GAB8", "channels": 8 },
-    "amp2": { "card": "GAB8_1", "channels": 8 }
+    "amp1": { "card": "amp1", "channels": 8 },
+    "amp2": { "card": "amp2", "channels": 8 }
   },
   "speakers": {
     "living_room_left": { "amplifier": "amp1", "channel": 1, "volume": 100, "latency": 0 },

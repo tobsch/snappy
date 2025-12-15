@@ -9,11 +9,12 @@ Wondom Speaker Identification Tool - identifies and configures speakers connecte
 ## Directory Structure
 
 ```
-testtool/
 ├── speaker_identify.py      # Interactive speaker identification via TTS
 ├── generate_alsa_config.py  # Generates ALSA PCM configuration
 ├── generate_snapserver_conf.py  # Generates Snapcast server config
 ├── speaker_config.json      # Speaker/room/zone configuration (v2.0)
+├── devconfig/
+│   └── 99-wondom-gab8.rules # udev rules for persistent amp naming
 ├── services/
 │   └── snapclient@.service  # Systemd template for per-room snapclients
 └── powermanager/
@@ -51,7 +52,7 @@ The config file is stored at `speaker_config.json` (in this tool directory).
 ```json
 {
   "version": "2.0",
-  "amplifiers": { "amp1": { "card": "GAB8", "channels": 8 } },
+  "amplifiers": { "amp1": { "card": "amp1", "channels": 8 } },
   "speakers": { "room_left": { "amplifier": "amp1", "channel": 3, "volume": 100, "latency": 0 } },
   "rooms": { "room": { "name": "Room", "left": "room_left", "right": "room_right", "zones": ["zone1"] } },
   "zones": { "zone1": { "name": "Zone 1" }, "alle": { "name": "All", "include_all": true } },
@@ -84,7 +85,7 @@ Three-stage workflow:
 
 - Supports cross-device stereo pairs (left speaker on amp1, right on amp2) using ALSA multi plugin
 - Channel indices: 1-based in config JSON, converted to 0-based for ALSA ttable
-- Device naming convention: `amp1`/`amp2`/`amp3` map to `GAB8`/`GAB8_1`/`GAB8_2` ALSA cards
+- **Persistent device naming**: udev rules (`devconfig/99-wondom-gab8.rules`) rename GAB8 devices to `amp1`/`amp2`/`amp3` based on USB port path. This ensures consistent naming across reboots. The names are bound to USB ports, not physical units - label your cables/ports.
 - Rooms can belong to multiple zones (tag-based, not hierarchical)
 - Multiple Spotify/AirPlay streams supported (each appears as separate device)
 - TTS announcements require pre-configured per-channel ALSA devices (`amp1_ch1` through `amp*_ch8`)

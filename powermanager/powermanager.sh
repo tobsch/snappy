@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
 
-# ALSA cards to monitor for activity
-CARDS=("2" "3")
+# ALSA cards to monitor for activity (using persistent udev names)
+CARDS=("amp1" "amp2" "amp3")
 
-# Relay commands
-RELAY_ON_CMD="crelay 2 on"
-RELAY_OFF_CMD="crelay 2 off"
+# Relay commands (inverted: relay off = amp on, relay on = amp off)
+RELAY_ON_CMD="sudo crelay 1 off"
+RELAY_OFF_CMD="sudo crelay 1 on"
 
 # Check interval in seconds (e.g., 0.05 = 50 milliseconds)
 SLEEP_INTERVAL=0.05
 
 # Idle timeout in seconds before turning off
-# 5 minutes = 300 seconds
-IDLE_TIMEOUT=300
+IDLE_TIMEOUT=60
 
 relay_on=false
 last_active_ts=0
@@ -23,7 +22,7 @@ log() {
 
 is_any_card_active() {
   for card in "${CARDS[@]}"; do
-    for status_file in /proc/asound/card${card}/pcm*/sub*/status; do
+    for status_file in /proc/asound/${card}/pcm*/sub*/status; do
       [ -e "$status_file" ] || continue
       if grep -q "RUNNING" "$status_file" 2>/dev/null; then
         return 0
