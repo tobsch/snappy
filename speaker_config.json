@@ -1,0 +1,353 @@
+{
+  "version": "2.0",
+  "amplifiers": {
+    "amp1": {
+      "card": "GAB8",
+      "channels": 8
+    },
+    "amp2": {
+      "card": "GAB8_1",
+      "channels": 8
+    },
+    "amp3": {
+      "card": "GAB8_2",
+      "channels": 8
+    }
+  },
+  "speakers": {
+    "kinderzimmer_lou_left": {
+      "amplifier": "amp1",
+      "channel": 3,
+      "volume": 100,
+      "latency": 0
+    },
+    "kinderzimmer_lou_right": {
+      "amplifier": "amp1",
+      "channel": 4,
+      "volume": 100,
+      "latency": 0
+    },
+    "elternbad_left": {
+      "amplifier": "amp1",
+      "channel": 6,
+      "volume": 100,
+      "latency": 0
+    },
+    "elternbad_right": {
+      "amplifier": "amp1",
+      "channel": 7,
+      "volume": 100,
+      "latency": 0
+    },
+    "kueche_left": {
+      "amplifier": "amp2",
+      "channel": 3,
+      "volume": 100,
+      "latency": 0
+    },
+    "esszimmer_left": {
+      "amplifier": "amp2",
+      "channel": 4,
+      "volume": 100,
+      "latency": 0
+    },
+    "einliegerwohnung_right": {
+      "amplifier": "amp2",
+      "channel": 5,
+      "volume": 100,
+      "latency": 0
+    },
+    "einliegerwohnung_left": {
+      "amplifier": "amp2",
+      "channel": 6,
+      "volume": 100,
+      "latency": 0
+    },
+    "elternschlafzimmer_right": {
+      "amplifier": "amp2",
+      "channel": 7,
+      "volume": 100,
+      "latency": 0
+    },
+    "gaestebad_right": {
+      "amplifier": "amp3",
+      "channel": 1,
+      "volume": 100,
+      "latency": 0
+    },
+    "esszimmer_right": {
+      "amplifier": "amp3",
+      "channel": 2,
+      "volume": 100,
+      "latency": 0
+    },
+    "backupkueche_right": {
+      "amplifier": "amp3",
+      "channel": 4,
+      "volume": 100,
+      "latency": 0
+    },
+    "kinderzimmer_linda_right": {
+      "amplifier": "amp3",
+      "channel": 5,
+      "volume": 100,
+      "latency": 0
+    },
+    "kinderzimmer_linda_left": {
+      "amplifier": "amp3",
+      "channel": 6,
+      "volume": 100,
+      "latency": 0
+    },
+    "wohnzimmer_left": {
+      "amplifier": "amp3",
+      "channel": 7,
+      "volume": 100,
+      "latency": 0
+    },
+    "elternschlafzimmer_left": {
+      "amplifier": "amp3",
+      "channel": 8,
+      "volume": 100,
+      "latency": 0
+    },
+    "vordach_left": {
+      "amplifier": "amp1",
+      "channel": 1,
+      "volume": 100,
+      "latency": 0
+    },
+    "vordach_right": {
+      "amplifier": "amp1",
+      "channel": 2,
+      "volume": 100,
+      "latency": 0
+    },
+    "backupkueche_left": {
+      "amplifier": "amp3",
+      "channel": 3,
+      "volume": 100,
+      "latency": 0
+    }
+  },
+  "rooms": {
+    "kinderzimmer_lou": {
+      "name": "Lou's Room",
+      "left": "kinderzimmer_lou_left",
+      "right": "kinderzimmer_lou_right",
+      "zones": [
+        "og",
+        "kinderzimmer"
+      ]
+    },
+    "kinderzimmer_linda": {
+      "name": "Linda's Room",
+      "left": "kinderzimmer_linda_left",
+      "right": "kinderzimmer_linda_right",
+      "zones": [
+        "og",
+        "kinderzimmer"
+      ]
+    },
+    "elternschlafzimmer": {
+      "name": "Master Bedroom",
+      "left": "elternschlafzimmer_left",
+      "right": "elternschlafzimmer_right",
+      "zones": [
+        "og",
+        "schlafbereich"
+      ]
+    },
+    "elternbad": {
+      "name": "Master Bath",
+      "left": "elternbad_left",
+      "right": "elternbad_right",
+      "zones": [
+        "og",
+        "baeder"
+      ]
+    },
+    "wohnzimmer": {
+      "name": "Living Room",
+      "left": "wohnzimmer_left",
+      "right": null,
+      "zones": [
+        "eg",
+        "wohnbereich"
+      ]
+    },
+    "kueche": {
+      "name": "Kitchen",
+      "left": "kueche_left",
+      "right": "backupkueche_right",
+      "zones": [
+        "eg",
+        "wohnbereich"
+      ]
+    },
+    "esszimmer": {
+      "name": "Dining Room",
+      "left": "esszimmer_left",
+      "right": "esszimmer_right",
+      "zones": [
+        "eg",
+        "wohnbereich"
+      ]
+    },
+    "gaestebad": {
+      "name": "Guest Bath",
+      "left": null,
+      "right": "gaestebad_right",
+      "zones": [
+        "eg",
+        "baeder"
+      ]
+    },
+    "einliegerwohnung": {
+      "name": "Apartment",
+      "left": "einliegerwohnung_left",
+      "right": "einliegerwohnung_right",
+      "zones": [
+        "einliegerwohnung"
+      ]
+    },
+    "vordach": {
+      "name": "Vordach",
+      "left": "vordach_left",
+      "right": "vordach_right",
+      "zones": [
+        "draussen"
+      ]
+    },
+    "backupkueche": {
+      "name": "Backupkueche",
+      "left": "backupkueche_left",
+      "right": null,
+      "zones": [
+        "wohnbereich",
+        "eg"
+      ]
+    }
+  },
+  "zones": {
+    "og": {
+      "name": "Obergeschoss"
+    },
+    "eg": {
+      "name": "Erdgeschoss"
+    },
+    "kinderzimmer": {
+      "name": "Kinderzimmer"
+    },
+    "schlafbereich": {
+      "name": "Schlafbereich"
+    },
+    "wohnbereich": {
+      "name": "Wohnbereich"
+    },
+    "baeder": {
+      "name": "Bader"
+    },
+    "einliegerwohnung": {
+      "name": "Einliegerwohnung"
+    },
+    "alle": {
+      "name": "Uberall",
+      "include_all": true
+    },
+    "draussen": {
+      "name": "Draussen"
+    }
+  },
+  "snapcast": {
+    "server": "localhost",
+    "streams": {
+      "default": {
+        "type": "pipe",
+        "path": "/tmp/snapfifo",
+        "sampleformat": "48000:16:2",
+        "codec": "flac"
+      },
+      "spotify_og": {
+        "type": "librespot",
+        "name": "Multiroom OG",
+        "bitrate": 320
+      },
+      "spotify_eg": {
+        "type": "librespot",
+        "name": "Multiroom EG",
+        "bitrate": 320
+      },
+      "spotify_kinder": {
+        "type": "librespot",
+        "name": "Kinderzimmer",
+        "bitrate": 320
+      },
+      "spotify_einliegerwohnung": {
+        "type": "librespot",
+        "name": "Einliegerwohnung",
+        "bitrate": 320
+      },
+      "airplay_og": {
+        "type": "airplay",
+        "name": "Obergeschoss",
+        "port": 7000,
+        "config_file": "/etc/shairport-sync-og.conf"
+      },
+      "airplay_eg": {
+        "type": "airplay",
+        "name": "Erdgeschoss",
+        "port": 7001,
+        "config_file": "/etc/shairport-sync-eg.conf"
+      },
+      "airplay_alle": {
+        "type": "airplay",
+        "name": "Whole House",
+        "port": 7002,
+        "config_file": "/etc/shairport-sync-all.conf"
+      }
+    },
+    "stream_targets": {
+      "default": {
+        "zones": [
+          "alle"
+        ]
+      },
+      "spotify_og": {
+        "zones": [
+          "og"
+        ]
+      },
+      "spotify_eg": {
+        "zones": [
+          "eg"
+        ]
+      },
+      "spotify_kinder": {
+        "zones": [
+          "kinderzimmer"
+        ]
+      },
+      "spotify_einliegerwohnung": {
+        "zones": [
+          "einliegerwohnung"
+        ]
+      },
+      "airplay_og": {
+        "zones": [
+          "og"
+        ]
+      },
+      "airplay_eg": {
+        "zones": [
+          "eg"
+        ]
+      },
+      "airplay_alle": {
+        "zones": [
+          "alle"
+        ]
+      }
+    }
+  }
+}

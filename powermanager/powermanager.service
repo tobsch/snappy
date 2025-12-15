@@ -1,0 +1,12 @@
+[Unit]
+Description=Amplifier power manager - controls relay based on ALSA activity
+After=sound.target multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/powermanager.sh
+Restart=on-failure
+User=root
+
+[Install]
+WantedBy=multi-user.target
