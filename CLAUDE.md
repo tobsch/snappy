@@ -117,11 +117,12 @@ The script uses `stream_targets` from `speaker_config.json` to assign rooms to s
 
 ## Troubleshooting
 
-### No audio playing
+### No audio playing / audio too quiet
 1. **Check if amplifiers are powered on** - The powermanager controls a USB relay that powers the amplifiers. If the relay is off, no audio will play even if everything else is working. Check with `crelay` or look at relay status.
-2. Check snapclient logs: `journalctl -u 'snapclient@room_*' -f`
-3. Test direct ALSA playback: `speaker-test -D room_<name>_raw -c 2 -t sine`
-4. Check Snapcast group assignments and stream status
+2. **Check amplifier mixer levels** - Each amp has its own PCM volume: `amixer -c amp1 sget PCM`. Set to 100% with `amixer -c amp1 sset PCM 100%` and save with `sudo alsactl store`.
+3. Check snapclient logs: `journalctl -u 'snapclient@room_*' -f`
+4. Test direct ALSA playback: `speaker-test -D room_<name>_raw -c 2 -t sine`
+5. Check Snapcast group assignments and stream status
 
 ### Snapclient configuration
 The snapclient service uses `--sampleformat 48000:16:*` because:

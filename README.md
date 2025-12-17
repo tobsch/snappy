@@ -2,6 +2,18 @@
 
 Identify and configure speakers connected to Wondom GAB8 USB audio devices. Generates ALSA configuration for stereo room-based playback and Snapcast server configuration for multiroom streaming.
 
+## About This Project
+
+I built a house with a custom multiroom audio system: a Raspberry Pi 5 connected to three Wondom GAB8 8-channel USB amplifiers, driving 24 speaker channels throughout the house.
+
+The problem? After running speaker cables to every room and connecting them to the amplifiers, I had no idea which speaker was connected to which amplifier channel. Walking around the house with a laptop, playing test tones, and manually noting down "amp2 channel 5 = kitchen left" for 24 speakers is tedious and error-prone.
+
+What started as a simple speaker identification tool grew from there: I needed ALSA configuration to combine mono channels into stereo room pairs (sometimes across different amplifiers), Snapcast configuration for multiroom streaming with per-room Spotify and AirPlay endpoints, persistent USB device naming so configurations survive reboots, and automatic power management to switch off the amplifiers when idle.
+
+This tooling handles all of that: interactive speaker identification with spoken announcements, automatic generation of ALSA and Snapcast configs, one-shot deployment, and relay-based power management.[^1]
+
+[^1]: This project was developed with the assistance of [Claude](https://claude.ai), Anthropic's AI assistant, using [Claude Code](https://claude.ai/code).
+
 ## Requirements
 
 - Python 3
