@@ -4,8 +4,8 @@
 CARDS=("amp1" "amp2" "amp3")
 
 # Relay commands (inverted: relay off = amp on, relay on = amp off)
-RELAY_ON_CMD="sudo crelay 1 off"
-RELAY_OFF_CMD="sudo crelay 1 on"
+RELAY_ON_CMD="crelay 1 off"
+RELAY_OFF_CMD="crelay 1 on"
 
 # Check interval in seconds (e.g., 0.05 = 50 milliseconds)
 SLEEP_INTERVAL=0.05
@@ -41,15 +41,21 @@ while true; do
     last_active_ts=$now_ts
     if [ "$relay_on" = false ]; then
       log "Audio activity detected - turning relay ON"
-      $RELAY_ON_CMD
-      relay_on=true
+      if $RELAY_ON_CMD; then
+        relay_on=true
+      else
+        log "Failed to turn relay ON - will retry"
+      fi
     fi
   else
     if [ "$relay_on" = true ]; then
       if (( now_ts - last_active_ts >= IDLE_TIMEOUT )); then
         log "No audio for ${IDLE_TIMEOUT}s - turning relay OFF"
-        $RELAY_OFF_CMD
-        relay_on=false
+        if $RELAY_OFF_CMD; then
+          relay_on=false
+        else
+          log "Failed to turn relay OFF - will retry"
+        fi
       fi
     fi
   fi

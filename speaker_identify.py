@@ -18,33 +18,32 @@ from pathlib import Path
 
 CONFIG_FILE = Path(__file__).parent / "speaker_config.json"
 
-# Expected card names for Wondom GAB8 devices
+# Pattern for amplifier card names (amp1, amp2, etc.)
 # These are set via udev rules in /etc/udev/rules.d/99-wondom-gab8.rules
-GAB8_CARD_NAMES = ["amp1", "amp2", "amp3"]
+AMP_PATTERN = re.compile(r'^amp(\d+)$')
 
 
 def discover_devices():
-    """Discover available Wondom GAB8 devices and their hardware addresses."""
+    """Discover available amplifier devices (amp1, amp2, etc.)."""
     try:
         result = subprocess.run(
             ["aplay", "-l"], capture_output=True, text=True, check=True
         )
         available = {}
-        # Parse output to find card numbers for GAB8 devices
-        # Example line: "card 2: GAB8 [WONDOM GAB8], device 0: USB Audio [USB Audio]"
+        # Parse output to find card numbers for amp devices
+        # Example line: "card 2: amp1 [WONDOM GAB8], device 0: USB Audio [USB Audio]"
         for line in result.stdout.split('\n'):
             match = re.match(r'^card (\d+): (\S+) \[', line)
             if match:
                 card_num = match.group(1)
                 card_name = match.group(2)
-                if card_name in GAB8_CARD_NAMES:
-                    device_name = f"amp{len(available) + 1}"
-                    available[device_name] = {
+                if AMP_PATTERN.match(card_name):
+                    available[card_name] = {
                         "card": card_name,
                         "hw": f"hw:{card_num}",
                         "channels": 8
                     }
-                    print(f"  Found {device_name}: {card_name} at hw:{card_num}")
+                    print(f"  Found {card_name} at hw:{card_num}")
         return available
     except subprocess.CalledProcessError as e:
         print(f"Error discovering devices: {e}")
@@ -332,11 +331,6 @@ def main():
         description="Identify and configure speakers connected to Wondom GAB8 devices"
     )
     parser.add_argument(
-        "--announce-rooms", "-r",
-        action="store_true",
-        help="Announce existing room names via TTS instead of amplifier/channel"
-    )
-    parser.add_argument(
         "--all", "-a",
         action="store_true",
         help="Announce all channels, including those already mapped"
@@ -413,19 +407,15 @@ def main():
                 continue
 
             # Build TTS announcement text in German
+            amp_num = device_name.replace("amp", "")
             if existing_speaker and existing_room:
                 print(f"  Currently mapped to: {existing_room} ({existing_pos})")
-                if args.announce_rooms:
-                    # Announce existing room/position
-                    pos_de = "links" if existing_pos == "left" else "rechts"
-                    tts_text = f"{existing_room.replace('_', ' ')} {pos_de}"
-                else:
-                    # Default: announce device and channel
-                    amp_num = device_name.replace("amp", "")
-                    tts_text = f"Verstarker {amp_num}, Kanal {channel}"
+                # Announce room/position and amp/channel
+                pos_de = "links" if existing_pos == "left" else "rechts"
+                room_name = existing_room.replace('_', ' ')
+                tts_text = f"{room_name} {pos_de}, Verstarker {amp_num}, Kanal {channel}"
             else:
-                # No existing mapping - announce device and channel in German
-                amp_num = device_name.replace("amp", "")
+                # No existing mapping - announce device and channel only
                 tts_text = f"Verstarker {amp_num}, Kanal {channel}"
 
             print(f"  Playing announcement: \"{tts_text}\" (repeats every 4 seconds)...")

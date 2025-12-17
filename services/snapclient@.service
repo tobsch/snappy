@@ -5,7 +5,7 @@ Wants=snapserver.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/snapclient -h localhost --hostID %i -s %i --logsink=system --sampleformat 48000:*:* --player alsa:buffer_time=80000
+ExecStart=/usr/bin/snapclient -h localhost --hostID %i -s %i --logsink=system --sampleformat 48000:16:*
 Restart=on-failure
 RestartSec=5
 

@@ -83,10 +83,31 @@ pcm.{amp_name} {{
 pcm.{amp_name}_dmix {{
     type dmix
     ipc_key 10{amp_name[-1] if amp_name[-1].isdigit() else '0'}
+    ipc_perm 0666
     slave {{
         pcm "{amp_name}"
         channels {channels}
+        rate 48000
+        period_size 2048
+        buffer_size 16384
     }}
+}}
+"""
+        # Generate per-channel devices for speaker identification (uses dmix for concurrent access)
+        for ch in range(1, channels + 1):
+            ch_idx = ch - 1  # 0-based for ALSA ttable
+            output += f"""
+pcm.{amp_name}_ch{ch}_raw {{
+    type route
+    slave.pcm "{amp_name}_dmix"
+    slave.channels {channels}
+    ttable.0.{ch_idx} 0.12
+    ttable.1.{ch_idx} 0.12
+}}
+
+pcm.{amp_name}_ch{ch} {{
+    type plug
+    slave.pcm "{amp_name}_ch{ch}_raw"
 }}
 """
 
@@ -134,23 +155,34 @@ def generate_same_device_config(room_id: str, left: dict, right: dict) -> str:
     left_ch = left["channel"] - 1  # Convert to 0-based
     right_ch = right["channel"] - 1
 
+    # Use dmix to allow concurrent access from multiple snapclients
+    # Volume scaled to 0.12 (~12%, -18dB) for max volume limiting
     return f"""
 #########
 # room_{room_id} - Stereo (same device: {device})
 #########
 
-pcm.room_{room_id} {{
+pcm.room_{room_id}_raw {{
     type route
-    slave.pcm "{device}"
+    slave.pcm "{device}_dmix"
     slave.channels 8
-    ttable.0.{left_ch} 1
-    ttable.1.{right_ch} 1
+    ttable.0.{left_ch} 0.12
+    ttable.1.{right_ch} 0.12
+}}
+
+pcm.room_{room_id} {{
+    type plug
+    slave.pcm "room_{room_id}_raw"
 }}
 """
 
 
 def generate_cross_device_config(room_id: str, left: dict, right: dict) -> str:
-    """Generate ALSA config for stereo pair across different devices."""
+    """Generate ALSA config for stereo pair across different devices.
+
+    Creates two separate mono devices for left and right speakers.
+    Requires two snapclient instances per room for proper playback.
+    """
     left_device = left["amplifier"]
     right_device = right["amplifier"]
     left_ch = left["channel"] - 1  # Convert to 0-based
@@ -158,24 +190,40 @@ def generate_cross_device_config(room_id: str, left: dict, right: dict) -> str:
 
     return f"""
 #########
-# room_{room_id} - Stereo (cross-device: {left_device} + {right_device})
+# room_{room_id} - Cross-device stereo: {left_device} ch{left_ch+1} + {right_device} ch{right_ch+1}
+# Use room_{room_id}_left and room_{room_id}_right with separate snapclients
 #########
 
-pcm.room_{room_id}_multi {{
-    type multi
-    slaves.a.pcm "{left_device}"
-    slaves.a.channels 8
-    slaves.b.pcm "{right_device}"
-    slaves.b.channels 8
-    bindings.0.slave a
-    bindings.0.channel {left_ch}
-    bindings.1.slave b
-    bindings.1.channel {right_ch}
+pcm.room_{room_id}_left_raw {{
+    type route
+    slave.pcm "{left_device}_dmix"
+    slave.channels 8
+    ttable.0.{left_ch} 0.12
+    ttable.1.{left_ch} 0.12
 }}
 
+pcm.room_{room_id}_left {{
+    type plug
+    slave.pcm "room_{room_id}_left_raw"
+}}
+
+pcm.room_{room_id}_right_raw {{
+    type route
+    slave.pcm "{right_device}_dmix"
+    slave.channels 8
+    ttable.0.{right_ch} 0.12
+    ttable.1.{right_ch} 0.12
+}}
+
+pcm.room_{room_id}_right {{
+    type plug
+    slave.pcm "room_{room_id}_right_raw"
+}}
+
+# Combined device for testing (mono mix to left speaker only)
 pcm.room_{room_id} {{
     type plug
-    slave.pcm "room_{room_id}_multi"
+    slave.pcm "room_{room_id}_left_raw"
 }}
 """
 
@@ -185,17 +233,23 @@ def generate_mono_config(room_id: str, speaker: dict, position: str) -> str:
     device = speaker["amplifier"]
     channel = speaker["channel"] - 1  # Convert to 0-based
 
+    # Use dmix to allow concurrent access from multiple snapclients
     return f"""
 #########
 # room_{room_id} - Mono ({position} only on {device})
 #########
 
-pcm.room_{room_id} {{
+pcm.room_{room_id}_raw {{
     type route
-    slave.pcm "{device}"
+    slave.pcm "{device}_dmix"
     slave.channels 8
-    ttable.0.{channel} 1
-    ttable.1.{channel} 1
+    ttable.0.{channel} 0.12
+    ttable.1.{channel} 0.12
+}}
+
+pcm.room_{room_id} {{
+    type plug
+    slave.pcm "room_{room_id}_raw"
 }}
 """
 
@@ -220,7 +274,7 @@ def generate_all_rooms_config(rooms: dict) -> str:
             })
 
     if len(device_channels) == 1:
-        # All on one device - use route
+        # All on one device - use route with dmix
         device = list(device_channels.keys())[0]
         channels = device_channels[device]
 
@@ -235,22 +289,27 @@ def generate_all_rooms_config(rooms: dict) -> str:
 # all_rooms - Play stereo to all configured speakers
 #########
 
-pcm.all_rooms {{
+pcm.all_rooms_raw {{
     type route
-    slave.pcm "{device}"
+    slave.pcm "{device}_dmix"
     slave.channels 8
 {ttable}
 }}
+
+pcm.all_rooms {{
+    type plug
+    slave.pcm "all_rooms_raw"
+}}
 """
     else:
-        # Multi-device setup
+        # Multi-device setup with dmix for concurrent access
         slaves = []
         bindings = []
         binding_idx = 0
 
         for i, (device, channels) in enumerate(sorted(device_channels.items())):
             slave_letter = chr(ord('a') + i)
-            slaves.append(f'    slaves.{slave_letter}.pcm "{device}"')
+            slaves.append(f'    slaves.{slave_letter}.pcm "{device}_dmix"')
             slaves.append(f'    slaves.{slave_letter}.channels 8')
 
             for ch_info in channels:

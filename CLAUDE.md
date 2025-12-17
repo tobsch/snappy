@@ -12,6 +12,7 @@ Wondom Speaker Identification Tool - identifies and configures speakers connecte
 ├── speaker_identify.py      # Interactive speaker identification via TTS
 ├── generate_alsa_config.py  # Generates ALSA PCM configuration
 ├── generate_snapserver_conf.py  # Generates Snapcast server config
+├── deploy_config.py         # One-shot deployment (ALSA + Snapcast + API config)
 ├── speaker_config.json      # Speaker/room/zone configuration (v2.0)
 ├── devconfig/
 │   └── 99-wondom-gab8.rules # udev rules for persistent amp naming
@@ -28,13 +29,15 @@ Wondom Speaker Identification Tool - identifies and configures speakers connecte
 # Identify speakers interactively (plays TTS announcements, prompts for room/position/zones)
 python3 speaker_identify.py
 python3 speaker_identify.py --all        # Re-announce all channels including mapped ones
-python3 speaker_identify.py --announce-rooms  # Announce room names instead of amp/channel
 
 # Generate ALSA configuration from speaker_config.json
 python3 generate_alsa_config.py > wondom_rooms.conf
 
 # Generate Snapcast server configuration
 python3 generate_snapserver_conf.py > snapserver.conf
+
+# Deploy everything in one go (ALSA config, Snapcast config, restart, configure groups)
+python3 deploy_config.py
 
 # Test playback to a room
 aplay -D room_<roomname> test.wav
@@ -81,6 +84,17 @@ Three-stage workflow:
   - Turns relay OFF after configurable idle timeout (default: 5 minutes)
   - Requires `crelay` tool for USB relay control
 
+### deploy_config.py
+
+One-shot deployment script that:
+1. Generates and installs ALSA config to `/etc/asound.conf`
+2. Generates and installs Snapcast config to `/etc/snapserver.conf`
+3. Restarts snapserver
+4. Waits for snapclients to connect (30s timeout)
+5. Configures Snapcast groups via JSON-RPC API (port 1705)
+
+The script uses `stream_targets` from `speaker_config.json` to assign rooms to streams based on zone membership. Requires sudo access.
+
 ### Key Design Considerations
 
 - Supports cross-device stereo pairs (left speaker on amp1, right on amp2) using ALSA multi plugin
@@ -100,3 +114,19 @@ Three-stage workflow:
 - Optional: `librespot` for Spotify Connect
 - Optional: `shairport-sync` compiled from source with `--with-airplay-2` for AirPlay 2 support
 - Optional: `crelay` for automatic amplifier power management via USB relay
+
+## Troubleshooting
+
+### No audio playing
+1. **Check if amplifiers are powered on** - The powermanager controls a USB relay that powers the amplifiers. If the relay is off, no audio will play even if everything else is working. Check with `crelay` or look at relay status.
+2. Check snapclient logs: `journalctl -u 'snapclient@room_*' -f`
+3. Test direct ALSA playback: `speaker-test -D room_<name>_raw -c 2 -t sine`
+4. Check Snapcast group assignments and stream status
+
+### Snapclient configuration
+The snapclient service uses `--sampleformat 48000:16:*` because:
+- The Wondom GAB8 amplifiers operate at 48kHz
+- Spotify streams at 44.1kHz and needs resampling to 48kHz
+- The `*` for channels is required by snapclient (must match source)
+
+Do NOT add `buffer_time` parameter - it's interpreted as milliseconds and causes massive buffer issues (e.g., `buffer_time=80000` = 80 seconds, not 80ms).
