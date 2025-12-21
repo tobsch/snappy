@@ -146,7 +146,7 @@ sampleformat = 48000:16:2
 # Default codec (flac, ogg, opus, pcm)
 codec = flac
 # Buffer size in ms
-buffer = 1000
+buffer = 200
 # Chunk size in ms
 chunk_ms = 26
 # Send audio to muted clients

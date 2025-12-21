@@ -204,7 +204,6 @@ def configure_snapcast_groups(config: dict, status: dict):
         return
 
     rooms = config.get("rooms", {})
-    zones = config.get("zones", {})
     streams = config.get("snapcast", {}).get("streams", {})
 
     # Build client -> group map
@@ -214,27 +213,19 @@ def configure_snapcast_groups(config: dict, status: dict):
             client_id = client.get("id", "")
             client_to_group[client_id] = group["id"]
 
-    # For each room, find matching stream and assign
+    # Build room -> stream map using stream_targets
+    room_to_stream = {}
+    for stream_id in streams.keys():
+        target_rooms = resolve_stream_rooms(config, stream_id)
+        for room_id in target_rooms:
+            # Later streams override earlier ones (allows specific overrides)
+            room_to_stream[room_id] = stream_id
+
+    # For each room, assign to target stream
     print(f"\n  Assigning {len(rooms)} rooms to streams...")
 
-    for room_id, room_info in rooms.items():
-        room_zones = room_info.get("zones", [])
-
-        # Find the stream for this room (match room name or zone)
-        target_stream = None
-
-        # First try exact room match (spotify_<room>)
-        if f"spotify_{room_id}" in streams:
-            target_stream = f"spotify_{room_id}"
-        else:
-            # Try zone match
-            for zone_id in room_zones:
-                if f"spotify_{zone_id}" in streams:
-                    target_stream = f"spotify_{zone_id}"
-                    break
-
-        if not target_stream:
-            target_stream = "default"
+    for room_id in rooms.keys():
+        target_stream = room_to_stream.get(room_id, "default")
 
         # Find all clients for this room (including _left/_right for cross-device)
         room_clients = []

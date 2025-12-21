@@ -14,6 +14,8 @@ import os
 import sys
 import tempfile
 import threading
+import struct
+import math
 from pathlib import Path
 
 CONFIG_FILE = Path(__file__).parent / "speaker_config.json"
@@ -72,6 +74,63 @@ def generate_tts_wav(text: str, amplitude: int = 200) -> str:
         return None
 
 
+def generate_beep_wav(frequency: int = 880, duration: float = 0.15, volume: float = 0.3) -> str:
+    """Generate a short sine wave beep WAV file. No external dependencies."""
+    fd, path = tempfile.mkstemp(suffix='.wav')
+    os.close(fd)
+
+    sample_rate = 48000
+    num_samples = int(sample_rate * duration)
+
+    # Generate sine wave samples with fade in/out to avoid clicks
+    fade_samples = int(sample_rate * 0.01)  # 10ms fade
+    samples = []
+    for i in range(num_samples):
+        # Sine wave
+        t = i / sample_rate
+        sample = math.sin(2 * math.pi * frequency * t) * volume
+
+        # Apply fade in/out envelope
+        if i < fade_samples:
+            sample *= i / fade_samples
+        elif i > num_samples - fade_samples:
+            sample *= (num_samples - i) / fade_samples
+
+        # Convert to 16-bit signed integer
+        samples.append(int(sample * 32767))
+
+    # Write WAV file manually (no wave module needed for simple case)
+    with open(path, 'wb') as f:
+        num_channels = 1
+        bits_per_sample = 16
+        byte_rate = sample_rate * num_channels * bits_per_sample // 8
+        block_align = num_channels * bits_per_sample // 8
+        data_size = num_samples * block_align
+
+        # RIFF header
+        f.write(b'RIFF')
+        f.write(struct.pack('<I', 36 + data_size))
+        f.write(b'WAVE')
+
+        # fmt chunk
+        f.write(b'fmt ')
+        f.write(struct.pack('<I', 16))  # chunk size
+        f.write(struct.pack('<H', 1))   # PCM format
+        f.write(struct.pack('<H', num_channels))
+        f.write(struct.pack('<I', sample_rate))
+        f.write(struct.pack('<I', byte_rate))
+        f.write(struct.pack('<H', block_align))
+        f.write(struct.pack('<H', bits_per_sample))
+
+        # data chunk
+        f.write(b'data')
+        f.write(struct.pack('<I', data_size))
+        for sample in samples:
+            f.write(struct.pack('<h', sample))
+
+    return path
+
+
 def play_tts_on_channel(device_name: str, channel: int, text: str) -> bool:
     """Play TTS audio on a specific channel using per-channel ALSA device."""
     wav_path = generate_tts_wav(text)
@@ -98,21 +157,49 @@ def play_tts_on_channel(device_name: str, channel: int, text: str) -> bool:
         os.unlink(wav_path)
 
 
-class RepeatingAnnouncement:
-    """Plays a TTS announcement repeatedly in the background until stopped."""
+def play_beep_on_channel(device_name: str, channel: int) -> bool:
+    """Play a short beep on a specific channel using per-channel ALSA device."""
+    wav_path = generate_beep_wav()
 
-    def __init__(self, device_name: str, channel: int, text: str, interval: float = 4.0):
+    try:
+        alsa_device = f"{device_name}_ch{channel}"
+        subprocess.run(
+            ["aplay", "-D", alsa_device, wav_path],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10
+        )
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"  Playback error on {alsa_device}: {e}")
+        return False
+    except subprocess.TimeoutExpired:
+        return True
+    finally:
+        os.unlink(wav_path)
+
+
+class RepeatingAnnouncement:
+    """Plays a TTS announcement or beep repeatedly in the background until stopped."""
+
+    def __init__(self, device_name: str, channel: int, text: str = None,
+                 interval: float = 4.0, sleep_mode: bool = False):
         self.device_name = device_name
         self.channel = channel
         self.text = text
-        self.interval = interval
+        self.interval = interval if not sleep_mode else 2.0  # Shorter interval for beeps
+        self.sleep_mode = sleep_mode
         self._stop_event = threading.Event()
         self._thread = None
 
     def _loop(self):
         """Loop that plays announcement repeatedly."""
         while not self._stop_event.is_set():
-            play_tts_on_channel(self.device_name, self.channel, self.text)
+            if self.sleep_mode:
+                play_beep_on_channel(self.device_name, self.channel)
+            else:
+                play_tts_on_channel(self.device_name, self.channel, self.text)
             # Wait for interval or until stopped
             self._stop_event.wait(self.interval)
 
@@ -335,13 +422,22 @@ def main():
         action="store_true",
         help="Announce all channels, including those already mapped"
     )
+    parser.add_argument(
+        "--sleep", "-s",
+        action="store_true",
+        help="Night mode: use quiet beeps instead of TTS announcements"
+    )
     args = parser.parse_args()
 
     print("=" * 50)
     print("WONDOM SPEAKER IDENTIFICATION TOOL")
     print("=" * 50)
-    print("\nThis tool will announce each speaker channel using TTS.")
-    print("Listen for the announcement and enter the room name and position.\n")
+    if args.sleep:
+        print("\nSLEEP MODE: Using quiet beeps instead of voice announcements.")
+        print("Listen for the beep and enter the room name and position.\n")
+    else:
+        print("\nThis tool will announce each speaker channel using TTS.")
+        print("Listen for the announcement and enter the room name and position.\n")
 
     print("Discovering devices...")
     devices = discover_devices()
@@ -418,10 +514,15 @@ def main():
                 # No existing mapping - announce device and channel only
                 tts_text = f"Verstarker {amp_num}, Kanal {channel}"
 
-            print(f"  Playing announcement: \"{tts_text}\" (repeats every 4 seconds)...")
+            if args.sleep:
+                print(f"  Playing beep (repeats every 2 seconds)...")
+            else:
+                print(f"  Playing announcement: \"{tts_text}\" (repeats every 4 seconds)...")
 
-            # Start repeating TTS announcement in background
-            announcement = RepeatingAnnouncement(device_name, channel, tts_text)
+            # Start repeating announcement/beep in background
+            announcement = RepeatingAnnouncement(
+                device_name, channel, tts_text, sleep_mode=args.sleep
+            )
             announcement.start()
 
             try:

@@ -55,6 +55,7 @@ The config file is stored at `speaker_config.json` (in this tool directory).
 ```json
 {
   "version": "2.0",
+  "global": { "max_volume": 0.25 },
   "amplifiers": { "amp1": { "card": "amp1", "channels": 8 } },
   "speakers": { "room_left": { "amplifier": "amp1", "channel": 3, "volume": 100, "latency": 0 } },
   "rooms": { "room": { "name": "Room", "left": "room_left", "right": "room_right", "zones": ["zone1"] } },
@@ -66,6 +67,10 @@ The config file is stored at `speaker_config.json` (in this tool directory).
   }
 }
 ```
+
+### Global Settings
+
+- `max_volume`: ALSA ttable coefficient (0.0-1.0) that limits maximum output volume. Default is 0.25 (25%, -12dB). Higher values = louder max volume.
 
 ## Architecture
 
@@ -131,3 +136,25 @@ The snapclient service uses `--sampleformat 48000:16:*` because:
 - The `*` for channels is required by snapclient (must match source)
 
 Do NOT add `buffer_time` parameter - it's interpreted as milliseconds and causes massive buffer issues (e.g., `buffer_time=80000` = 80 seconds, not 80ms).
+
+### Librespot cache corruption
+If Spotify streams show "playing" status but snapclients report "No chunks available" or you see these errors in `journalctl -u snapserver`:
+```
+(librespot_core::audio_key) Audio key response timeout
+(librespot_playback::player) Unable to load key, continuing without decryption
+(librespot_playback::player) Unable to read audio file: Symphonia Decoder Error: end of stream
+```
+
+The librespot cache is likely corrupted. Fix by clearing the cache for the affected stream:
+```bash
+# For spotify_wohnen stream:
+sudo rm -rf /var/cache/snapserver/librespot-spotify_wohnen/*
+
+# For spotify_kueche stream:
+sudo rm -rf /var/cache/snapserver/librespot-spotify_kueche/*
+
+# Then restart snapserver
+sudo systemctl restart snapserver
+```
+
+After restart, you'll need to re-select the Spotify device in your Spotify app and reassign stream targets (run `deploy_config.py` or use the JSON-RPC API).

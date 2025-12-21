@@ -25,6 +25,9 @@ def get_alsa_card_name(base_card: str, index: int) -> str:
 
 CONFIG_FILE = Path(__file__).parent / "speaker_config.json"
 
+# Default max volume coefficient (0.0-1.0)
+DEFAULT_MAX_VOLUME = 0.5
+
 
 def load_config() -> dict:
     """Load speaker configuration from JSON."""
@@ -44,9 +47,15 @@ def load_config() -> dict:
     return config
 
 
+def get_max_volume(config: dict) -> float:
+    """Get max volume coefficient from global config."""
+    return config.get("global", {}).get("max_volume", DEFAULT_MAX_VOLUME)
+
+
 def generate_amplifier_config(config: dict) -> str:
     """Generate base PCM definitions for all amplifiers."""
     amplifiers = config.get("amplifiers", {})
+    max_vol = get_max_volume(config)
     if not amplifiers:
         return ""
 
@@ -101,8 +110,8 @@ pcm.{amp_name}_ch{ch}_raw {{
     type route
     slave.pcm "{amp_name}_dmix"
     slave.channels {channels}
-    ttable.0.{ch_idx} 0.12
-    ttable.1.{ch_idx} 0.12
+    ttable.0.{ch_idx} {max_vol}
+    ttable.1.{ch_idx} {max_vol}
 }}
 
 pcm.{amp_name}_ch{ch} {{
@@ -149,14 +158,13 @@ def get_room_speakers(config: dict) -> dict:
     return rooms
 
 
-def generate_same_device_config(room_id: str, left: dict, right: dict) -> str:
+def generate_same_device_config(room_id: str, left: dict, right: dict, max_vol: float) -> str:
     """Generate ALSA config for stereo pair on same device."""
     device = left["amplifier"]
     left_ch = left["channel"] - 1  # Convert to 0-based
     right_ch = right["channel"] - 1
 
     # Use dmix to allow concurrent access from multiple snapclients
-    # Volume scaled to 0.12 (~12%, -18dB) for max volume limiting
     return f"""
 #########
 # room_{room_id} - Stereo (same device: {device})
@@ -166,8 +174,8 @@ pcm.room_{room_id}_raw {{
     type route
     slave.pcm "{device}_dmix"
     slave.channels 8
-    ttable.0.{left_ch} 0.12
-    ttable.1.{right_ch} 0.12
+    ttable.0.{left_ch} {max_vol}
+    ttable.1.{right_ch} {max_vol}
 }}
 
 pcm.room_{room_id} {{
@@ -177,7 +185,7 @@ pcm.room_{room_id} {{
 """
 
 
-def generate_cross_device_config(room_id: str, left: dict, right: dict) -> str:
+def generate_cross_device_config(room_id: str, left: dict, right: dict, max_vol: float) -> str:
     """Generate ALSA config for stereo pair across different devices.
 
     Creates two separate mono devices for left and right speakers.
@@ -198,8 +206,8 @@ pcm.room_{room_id}_left_raw {{
     type route
     slave.pcm "{left_device}_dmix"
     slave.channels 8
-    ttable.0.{left_ch} 0.12
-    ttable.1.{left_ch} 0.12
+    ttable.0.{left_ch} {max_vol}
+    ttable.1.{left_ch} {max_vol}
 }}
 
 pcm.room_{room_id}_left {{
@@ -211,8 +219,8 @@ pcm.room_{room_id}_right_raw {{
     type route
     slave.pcm "{right_device}_dmix"
     slave.channels 8
-    ttable.0.{right_ch} 0.12
-    ttable.1.{right_ch} 0.12
+    ttable.0.{right_ch} {max_vol}
+    ttable.1.{right_ch} {max_vol}
 }}
 
 pcm.room_{room_id}_right {{
@@ -228,7 +236,7 @@ pcm.room_{room_id} {{
 """
 
 
-def generate_mono_config(room_id: str, speaker: dict, position: str) -> str:
+def generate_mono_config(room_id: str, speaker: dict, position: str, max_vol: float) -> str:
     """Generate ALSA config for mono speaker (missing left or right)."""
     device = speaker["amplifier"]
     channel = speaker["channel"] - 1  # Convert to 0-based
@@ -243,8 +251,8 @@ pcm.room_{room_id}_raw {{
     type route
     slave.pcm "{device}_dmix"
     slave.channels 8
-    ttable.0.{channel} 0.12
-    ttable.1.{channel} 0.12
+    ttable.0.{channel} {max_vol}
+    ttable.1.{channel} {max_vol}
 }}
 
 pcm.room_{room_id} {{
@@ -351,7 +359,9 @@ def main():
         sys.exit(1)
 
     amplifiers = config.get("amplifiers", {})
-    print(f"\nGenerating config for {len(amplifiers)} amplifier(s) and {len(rooms)} room(s)...\n", file=sys.stderr)
+    max_vol = get_max_volume(config)
+    print(f"\nGenerating config for {len(amplifiers)} amplifier(s) and {len(rooms)} room(s)...", file=sys.stderr)
+    print(f"Max volume coefficient: {max_vol} ({max_vol*100:.0f}%)\n", file=sys.stderr)
 
     # Generate header
     output = """
@@ -382,17 +392,17 @@ def main():
         if left and right:
             if left["amplifier"] == right["amplifier"]:
                 # Same device - use route plugin
-                output += generate_same_device_config(room_id, left, right)
+                output += generate_same_device_config(room_id, left, right, max_vol)
                 print(f"  room_{room_id}: stereo on {left['amplifier']} (ch{left['channel']}, ch{right['channel']})", file=sys.stderr)
             else:
                 # Different devices - use multi plugin
-                output += generate_cross_device_config(room_id, left, right)
+                output += generate_cross_device_config(room_id, left, right, max_vol)
                 print(f"  room_{room_id}: cross-device ({left['amplifier']}_ch{left['channel']} + {right['amplifier']}_ch{right['channel']})", file=sys.stderr)
         elif left:
-            output += generate_mono_config(room_id, left, "left")
+            output += generate_mono_config(room_id, left, "left", max_vol)
             print(f"  room_{room_id}: mono (left only on {left['amplifier']}_ch{left['channel']})", file=sys.stderr)
         elif right:
-            output += generate_mono_config(room_id, right, "right")
+            output += generate_mono_config(room_id, right, "right", max_vol)
             print(f"  room_{room_id}: mono (right only on {right['amplifier']}_ch{right['channel']})", file=sys.stderr)
 
     # Generate all_rooms combined output
