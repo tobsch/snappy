@@ -1,6 +1,9 @@
-# Wondom Speaker Identification Tool
+# Opinionated multiroom speaker tooling
 
-Identify and configure speakers connected to Wondom GAB8 USB audio devices. Generates ALSA configuration for stereo room-based playback and Snapcast server configuration for multiroom streaming.
+* Tools to identify and configure speakers connected to your USB amps.
+* Generator for ALSA configuration for stereo room-based playback
+* Generator for Snapcast server configuration for multiroom streaming & matching clients
+* Power manager to turn on and off amps via Relays
 
 ## About This Project
 
