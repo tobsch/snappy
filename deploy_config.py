@@ -170,6 +170,7 @@ def wait_for_clients(expected_rooms: list, timeout: int = 30) -> dict:
 
         time.sleep(1)
 
+    missing = set(expected_rooms) - connected if connected else set(expected_rooms)
     print(f"  Timeout waiting for clients. Missing: {missing}")
     return get_snapcast_status()
 

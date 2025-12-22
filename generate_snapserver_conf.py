@@ -114,7 +114,8 @@ def generate_stream_source(stream_id: str, stream_config: dict, config: dict) ->
         else:
             device = stream_config.get("device", "default")
             sampleformat = stream_config.get("sampleformat", "48000:16:2")
-        return f"source = alsa://{device}?name={encoded_stream_name}&sampleformat={sampleformat}"
+        # ALSA source format: alsa://?device=<dev>&name=<name>&sampleformat=<fmt>
+        return f"source = alsa://?name={encoded_stream_name}&device={device}&sampleformat={sampleformat}"
 
     else:
         print(f"Warning: Unknown stream type '{stream_type}' for {stream_id}", file=sys.stderr)
