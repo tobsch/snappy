@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Multiroom Audio Tooling
 
 # Opinionated multiroom speaker tooling

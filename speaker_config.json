@@ -1,7 +1,7 @@
 {
   "version": "2.0",
   "global": {
-    "max_volume": 0.5
+    "max_volume": 1.0
   },
   "amplifiers": {
     "amp1": {
