@@ -1,6 +1,6 @@
-# Wondom Speaker Identification Tool
+# Multiroom Audio Tooling
 
-Identify and configure speakers connected to Wondom GAB8 USB audio devices. Generates ALSA configuration for stereo room-based playback and Snapcast server configuration for multiroom streaming.
+Identify and configure speakers connected to multi-channel USB audio amplifiers. Generates ALSA configuration for stereo room-based playback and Snapcast server configuration for multiroom streaming.
 
 ## About This Project
 
@@ -10,7 +10,9 @@ The problem? After running speaker cables to every room and connecting them to t
 
 What started as a simple speaker identification tool grew from there: I needed ALSA configuration to combine mono channels into stereo room pairs (sometimes across different amplifiers), Snapcast configuration for multiroom streaming with per-room Spotify and AirPlay endpoints, persistent USB device naming so configurations survive reboots, and automatic power management to switch off the amplifiers when idle.
 
-This tooling handles all of that: interactive speaker identification with spoken announcements, automatic generation of ALSA and Snapcast configs, one-shot deployment, and relay-based power management.[^1]
+This tooling handles all of that: interactive speaker identification with spoken announcements, automatic generation of ALSA and Snapcast configs, one-shot deployment, and relay-based power management.
+
+While originally built for Wondom GAB8 amplifiers, the tool is device-agnostic and works with any multi-channel USB audio device that exposes individual channels via ALSA.[^1]
 
 [^1]: This project was developed with the assistance of [Claude](https://claude.ai), Anthropic's AI assistant, using [Claude Code](https://claude.ai/code).
 
@@ -19,7 +21,7 @@ This tooling handles all of that: interactive speaker identification with spoken
 - Python 3
 - ALSA utilities (`aplay`, `speaker-test`)
 - `espeak-ng` for TTS announcements during identification (`sudo apt install espeak-ng`)
-- Wondom GAB8 devices with per-channel ALSA routing pre-configured (`amp1_ch1` through `amp*_ch8`)
+- Multi-channel USB audio amplifiers with per-channel ALSA routing pre-configured (`amp1_ch1` through `amp*_ch8`)
 - Snapcast server and client (`snapserver`, `snapclient`) for multiroom streaming
 - Optional: `librespot` for Spotify Connect
 - Optional: `crelay` for automatic amplifier power management via USB relay
@@ -47,43 +49,40 @@ sudo make install
 
 ## Persistent Device Naming (udev)
 
-By default, USB devices get names like `GAB8`, `GAB8_1`, `GAB8_2` based on enumeration order, which can change between reboots or when USB devices are reconnected. This project uses udev rules to assign persistent names (`amp1`, `amp2`, `amp3`) based on USB port path.
+By default, USB audio devices get names based on enumeration order, which can change between reboots or when devices are reconnected. This project includes example udev rules to assign persistent names (`amp1`, `amp2`, `amp3`) based on USB port path.
 
-### Installation
+### Customizing for Your Setup
+
+The included `devconfig/99-wondom-gab8.rules` is an example for Wondom GAB8 amplifiers on a Raspberry Pi 5. You'll need to adapt it for your specific devices.
+
+1. Find your device's current ALSA ID and USB path:
 
 ```bash
-# Install the udev rules
-sudo cp devconfig/99-wondom-gab8.rules /etc/udev/rules.d/
+# List current ALSA cards
+cat /proc/asound/cards
 
-# Reload rules and trigger
+# Get the USB path for a specific card (replace controlC2 with your card)
+udevadm info -q all /dev/snd/controlC2 | grep -E "^E: (ID_PATH|ID_MODEL)="
+```
+
+2. Create udev rules matching your devices. Example structure:
+
+```bash
+# Match by device model/ID and USB path, assign persistent name
+SUBSYSTEM=="sound", ATTR{id}=="YourDeviceID*", ENV{ID_PATH}=="your-usb-path", ATTR{id}="amp1"
+```
+
+3. Install and activate:
+
+```bash
+sudo cp devconfig/your-rules-file.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
 
 # Verify the new names
 cat /proc/asound/cards
-# Should show: amp1, amp2, amp3 instead of GAB8, GAB8_1, GAB8_2
 ```
-
-### How It Works
-
-The udev rules in `devconfig/99-wondom-gab8.rules` match GAB8 devices by their USB path and rename them:
-
-| USB Path | ALSA Card Name |
-|----------|----------------|
-| `platform-xhci-hcd.0-usb-0:2:1.1` | amp1 |
-| `platform-xhci-hcd.1-usb-0:2:1.1` | amp2 |
-| `platform-xhci-hcd.1-usb-0:1.4:1.1` | amp3 |
 
 **Important:** The names are bound to USB ports, not to physical amplifier units. If you move an amplifier to a different USB port, you'll need to update the udev rules to match. Label your USB ports or cables to keep track.
-
-### Customizing for Your Setup
-
-If your USB paths differ, find your current paths with:
-
-```bash
-udevadm info -q all /dev/snd/controlC2 | grep "^E: ID_PATH="
-```
-
-Then edit the rules file to match your paths before installing.
 
 ## Usage
 
@@ -94,8 +93,8 @@ python3 speaker_identify.py
 ```
 
 The tool will:
-- Detect all connected Wondom GAB8 devices
-- Play a German TTS announcement on each channel (e.g., "Verstärker 1, Kanal 3")
+- Detect all configured amplifiers from `speaker_config.json`
+- Play a TTS announcement on each channel (e.g., "Verstärker 1, Kanal 3")
 - Prompt you for the room name, position (left/right), and zone assignments
 - Save progress incrementally (can be resumed if interrupted)
 
@@ -111,13 +110,13 @@ CLI options:
 ### 2. Generate ALSA Configuration
 
 ```bash
-python3 generate_alsa_config.py > wondom_rooms.conf
+python3 generate_alsa_config.py > asound.conf
 ```
 
 Review the generated config, then install:
 
 ```bash
-sudo cp wondom_rooms.conf /etc/asound.conf
+sudo cp asound.conf /etc/asound.conf
 ```
 
 ### 3. Generate Snapcast Configuration

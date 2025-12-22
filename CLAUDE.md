@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Wondom Speaker Identification Tool - identifies and configures speakers connected to Wondom GAB8 USB audio devices and generates ALSA and Snapcast configuration for multiroom audio playback.
+Multiroom Audio Tooling - identifies and configures speakers connected to multi-channel USB audio amplifiers and generates ALSA and Snapcast configuration for multiroom audio playback. Originally built for Wondom GAB8 amplifiers but works with any multi-channel USB audio device.
 
 ## Directory Structure
 
@@ -15,7 +15,7 @@ Wondom Speaker Identification Tool - identifies and configures speakers connecte
 ├── deploy_config.py         # One-shot deployment (ALSA + Snapcast + API config)
 ├── speaker_config.json      # Speaker/room/zone configuration (v2.0)
 ├── devconfig/
-│   └── 99-wondom-gab8.rules # udev rules for persistent amp naming
+│   └── 99-wondom-gab8.rules # Example udev rules for persistent amp naming
 ├── services/
 │   └── snapclient@.service  # Systemd template for per-room snapclients
 └── powermanager/
@@ -31,7 +31,7 @@ python3 speaker_identify.py
 python3 speaker_identify.py --all        # Re-announce all channels including mapped ones
 
 # Generate ALSA configuration from speaker_config.json
-python3 generate_alsa_config.py > wondom_rooms.conf
+python3 generate_alsa_config.py > asound.conf
 
 # Generate Snapcast server configuration
 python3 generate_snapserver_conf.py > snapserver.conf
@@ -75,7 +75,7 @@ The config file is stored at `speaker_config.json` (in this tool directory).
 ## Architecture
 
 Three-stage workflow:
-1. **speaker_identify.py** - Interactive CLI that plays German TTS announcements (via espeak-ng) on each GAB8 channel, prompts user for room name, left/right position, and zone assignments. Saves mappings to `speaker_config.json`. Progress is saved incrementally and can be resumed.
+1. **speaker_identify.py** - Interactive CLI that plays TTS announcements (via espeak-ng) on each amplifier channel, prompts user for room name, left/right position, and zone assignments. Saves mappings to `speaker_config.json`. Progress is saved incrementally and can be resumed.
 2. **generate_alsa_config.py** - Reads config, outputs ALSA config with base amplifier PCMs (`amp1`, `amp2`, etc.), room PCMs (`room_<name>`), and combined `all_rooms` device. Zones are handled by Snapcast, not ALSA.
 3. **generate_snapserver_conf.py** - Reads config, outputs Snapcast server configuration with multiple stream sources (Spotify, AirPlay, pipe, etc.)
 
@@ -104,7 +104,7 @@ The script uses `stream_targets` from `speaker_config.json` to assign rooms to s
 
 - Supports cross-device stereo pairs (left speaker on amp1, right on amp2) using ALSA multi plugin
 - Channel indices: 1-based in config JSON, converted to 0-based for ALSA ttable
-- **Persistent device naming**: udev rules (`devconfig/99-wondom-gab8.rules`) rename GAB8 devices to `amp1`/`amp2`/`amp3` based on USB port path. This ensures consistent naming across reboots. The names are bound to USB ports, not physical units - label your cables/ports.
+- **Persistent device naming**: Example udev rules in `devconfig/` show how to rename USB audio devices to `amp1`/`amp2`/`amp3` based on USB port path. Users must adapt these for their specific devices. The names are bound to USB ports, not physical units - label your cables/ports.
 - Rooms can belong to multiple zones (tag-based, not hierarchical)
 - Multiple Spotify/AirPlay streams supported (each appears as separate device)
 - TTS announcements require pre-configured per-channel ALSA devices (`amp1_ch1` through `amp*_ch8`)
@@ -113,8 +113,8 @@ The script uses `stream_targets` from `speaker_config.json` to assign rooms to s
 
 - Python 3
 - ALSA utilities (`aplay`, `speaker-test`)
-- `espeak-ng` for German TTS during speaker identification
-- Wondom GAB8 USB audio devices with per-channel ALSA routing pre-configured
+- `espeak-ng` for TTS during speaker identification
+- Multi-channel USB audio amplifiers with per-channel ALSA routing pre-configured
 - Snapcast server and client (`snapserver`, `snapclient`) for multiroom streaming
 - Optional: `librespot` for Spotify Connect
 - Optional: `shairport-sync` compiled from source with `--with-airplay-2` for AirPlay 2 support
@@ -131,7 +131,7 @@ The script uses `stream_targets` from `speaker_config.json` to assign rooms to s
 
 ### Snapclient configuration
 The snapclient service uses `--sampleformat 48000:16:*` because:
-- The Wondom GAB8 amplifiers operate at 48kHz
+- Many USB amplifiers (including Wondom GAB8) operate at 48kHz
 - Spotify streams at 44.1kHz and needs resampling to 48kHz
 - The `*` for channels is required by snapclient (must match source)
 
