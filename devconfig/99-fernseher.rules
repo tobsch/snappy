@@ -1,0 +1,8 @@
+# Udev rules for AB13X USB Audio adapter (TV input)
+# Assigns persistent ALSA card name based on USB path
+#
+# Install: sudo cp 99-fernseher.rules /etc/udev/rules.d/
+# Reload:  sudo udevadm control --reload-rules && sudo udevadm trigger
+
+# AB13X USB Audio on USB controller 1, port 1.3 (via hub) -> fernseher
+SUBSYSTEM=="sound", ATTR{id}=="Audio", ENV{ID_PATH}=="platform-xhci-hcd.1-usb-0:1.3:1.0", ATTR{id}="fernseher"

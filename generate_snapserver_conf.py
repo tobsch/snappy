@@ -33,20 +33,30 @@ def load_config() -> dict:
     return config
 
 
-def generate_stream_source(stream_id: str, stream_config: dict) -> str:
+def generate_stream_source(stream_id: str, stream_config: dict, config: dict) -> str:
     """Generate a source line for snapserver.conf."""
     stream_type = stream_config.get("type", "pipe")
     name = stream_config.get("name", stream_id)
 
-    # Use stream_id as the unique snapserver stream name to avoid duplicates
-    # The 'name' field is used for user-facing device names (Spotify/AirPlay)
-    stream_name = stream_id
+    # Generate a user-friendly display name for Snapcast based on stream type
+    # This appears in Snapcast clients/web UI
+    if stream_type == "librespot":
+        stream_name = f"Spotify {name}"
+    elif stream_type == "airplay":
+        stream_name = f"AirPlay {name}"
+    elif stream_type == "pipe" and stream_id == "default":
+        stream_name = "Default"
+    else:
+        stream_name = name if name != stream_id else stream_id
+
+    # URL-encode the stream name for use in source URI
+    encoded_stream_name = urllib.parse.quote(stream_name, safe='')
 
     if stream_type == "pipe":
         path = stream_config.get("path", f"/tmp/snapfifo_{stream_id}")
         sampleformat = stream_config.get("sampleformat", "48000:16:2")
         codec = stream_config.get("codec", "flac")
-        return f"source = pipe://{path}?name={stream_name}&sampleformat={sampleformat}&codec={codec}"
+        return f"source = pipe://{path}?name={encoded_stream_name}&sampleformat={sampleformat}&codec={codec}"
 
     elif stream_type == "librespot":
         bitrate = stream_config.get("bitrate", 320)
@@ -56,8 +66,8 @@ def generate_stream_source(stream_id: str, stream_config: dict) -> str:
         cache_dir = stream_config.get("cache", f"/var/cache/snapserver/librespot-{stream_id}")
         # librespot streams use the meta stream type in newer snapcast versions
         # but the librespot source type for direct integration
-        # Use 160kbps for better stability, 44100 Hz (Spotify's native format, dmix matches this)
-        return f"source = librespot:///librespot?name={stream_name}&devicename={device_name}&bitrate=160&cache={cache_dir}&volume={initial_volume}&sampleformat=44100:16:2"
+        # Use 320kbps for best quality, 44100 Hz (Spotify's native format)
+        return f"source = librespot:///librespot?name={encoded_stream_name}&devicename={device_name}&bitrate=320&cache={cache_dir}&volume={initial_volume}&sampleformat=44100:16:2"
 
     elif stream_type == "airplay":
         device_name = stream_config.get("name", stream_id)
@@ -72,25 +82,39 @@ def generate_stream_source(stream_id: str, stream_config: dict) -> str:
             # Use process source with explicit config file for unique device IDs
             params = f"-c {config_file} -o stdout -a \"{device_name}\" -p {port}"
             encoded_params = urllib.parse.quote(params, safe='')
-            return f"source = process://{shairport_path}?name={stream_name}&params={encoded_params}"
+            return f"source = process://{shairport_path}?name={encoded_stream_name}&params={encoded_params}"
         else:
             # Fallback to native airplay source (single instance only)
-            return f"source = airplay://{shairport_path}?name={stream_name}&devicename={device_name}&port={port}&coverart=false"
+            return f"source = airplay://{shairport_path}?name={encoded_stream_name}&devicename={device_name}&port={port}&coverart=false"
 
     elif stream_type == "process":
         path = stream_config.get("path", "")
         params = stream_config.get("params", "")
-        return f"source = process://{path}?name={stream_name}&params={params}"
+        return f"source = process://{path}?name={encoded_stream_name}&params={params}"
 
     elif stream_type == "tcp":
         host = stream_config.get("host", "0.0.0.0")
         port = stream_config.get("port", 4953)
         mode = stream_config.get("mode", "server")
-        return f"source = tcp://{host}:{port}?name={stream_name}&mode={mode}"
+        return f"source = tcp://{host}:{port}?name={encoded_stream_name}&mode={mode}"
 
     elif stream_type == "alsa":
-        device = stream_config.get("device", "default")
-        return f"source = alsa://{device}?name={stream_name}"
+        # Look up input from inputs section if specified
+        input_id = stream_config.get("input")
+        if input_id:
+            inputs = config.get("inputs", {})
+            input_config = inputs.get(input_id, {})
+            device = f"hw:{input_config.get('card', input_id)}"
+            # Use input's display name if stream doesn't have one
+            if name == stream_id:
+                name = input_config.get("name", stream_id)
+                encoded_stream_name = urllib.parse.quote(name, safe='')
+            # Use sampleformat from input config, then stream config, then default
+            sampleformat = stream_config.get("sampleformat", input_config.get("sampleformat", "48000:16:2"))
+        else:
+            device = stream_config.get("device", "default")
+            sampleformat = stream_config.get("sampleformat", "48000:16:2")
+        return f"source = alsa://{device}?name={encoded_stream_name}&sampleformat={sampleformat}"
 
     else:
         print(f"Warning: Unknown stream type '{stream_type}' for {stream_id}", file=sys.stderr)
@@ -158,7 +182,7 @@ send_to_muted = false
     output += "# Stream sources\n"
     for stream_id in sorted(streams.keys()):
         stream_config = streams[stream_id]
-        source_line = generate_stream_source(stream_id, stream_config)
+        source_line = generate_stream_source(stream_id, stream_config, config)
         output += f"{source_line}\n"
 
     return output

@@ -15,7 +15,8 @@ Multiroom Audio Tooling - identifies and configures speakers connected to multi-
 ├── deploy_config.py         # One-shot deployment (ALSA + Snapcast + API config)
 ├── speaker_config.json      # Speaker/room/zone configuration (v2.0)
 ├── devconfig/
-│   └── 99-wondom-gab8.rules # Example udev rules for persistent amp naming
+│   ├── 99-wondom-gab8.rules # Example udev rules for persistent amp naming
+│   └── 99-fernseher.rules   # udev rules for TV audio input
 ├── services/
 │   └── snapclient@.service  # Systemd template for per-room snapclients
 └── powermanager/
@@ -57,12 +58,16 @@ The config file is stored at `speaker_config.json` (in this tool directory).
   "version": "2.0",
   "global": { "max_volume": 0.25 },
   "amplifiers": { "amp1": { "card": "amp1", "channels": 8 } },
+  "inputs": { "fernseher": { "card": "fernseher", "channels": 1, "sampleformat": "48000:16:1", "name": "Fernseher" } },
   "speakers": { "room_left": { "amplifier": "amp1", "channel": 3, "volume": 100, "latency": 0 } },
   "rooms": { "room": { "name": "Room", "left": "room_left", "right": "room_right", "zones": ["zone1"] } },
   "zones": { "zone1": { "name": "Zone 1" }, "alle": { "name": "All", "include_all": true } },
   "snapcast": {
     "server": "localhost",
-    "streams": { "spotify": { "type": "librespot", "name": "Spotify", "bitrate": 320 } },
+    "streams": {
+      "spotify": { "type": "librespot", "name": "Spotify", "bitrate": 320 },
+      "fernseher": { "type": "alsa", "input": "fernseher" }
+    },
     "stream_targets": { "spotify": { "zones": ["alle"] } }
   }
 }
@@ -71,6 +76,16 @@ The config file is stored at `speaker_config.json` (in this tool directory).
 ### Global Settings
 
 - `max_volume`: ALSA ttable coefficient (0.0-1.0) that limits maximum output volume. Default is 0.25 (25%, -12dB). Higher values = louder max volume.
+
+### Inputs
+
+Audio inputs (capture devices) for use as Snapcast stream sources:
+- `card`: ALSA card name (should match udev-assigned name)
+- `channels`: Number of input channels (1 for mono, 2 for stereo)
+- `sampleformat`: Capture format (e.g., "48000:16:1" for 48kHz 16-bit mono)
+- `name`: Display name in Snapcast
+
+Reference inputs in streams with `"type": "alsa", "input": "input_id"`.
 
 ## Architecture
 

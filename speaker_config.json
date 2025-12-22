@@ -17,6 +17,14 @@
       "channels": 8
     }
   },
+  "inputs": {
+    "fernseher": {
+      "card": "fernseher",
+      "channels": 1,
+      "sampleformat": "48000:16:1",
+      "name": "Fernseher"
+    }
+  },
   "speakers": {
     "wohnzimmer_right": {
       "amplifier": "amp1",
@@ -102,7 +110,7 @@
       "name": "Vordach",
       "left": "vordach_left",
       "right": null,
-      "zones": []
+      "zones": ["draussen"]
     }
   },
   "zones": {
@@ -112,6 +120,9 @@
     },
     "essen": {
       "name": "Essen"
+    },
+    "draussen": {
+      "name": "Draussen"
     }
   },
   "snapcast": {
@@ -140,6 +151,14 @@
         "type": "airplay",
         "name": "Wohnen",
         "port": 7001
+      },
+      "spotify_draussen": {
+        "type": "librespot",
+        "name": "Draussen"
+      },
+      "fernseher": {
+        "type": "alsa",
+        "input": "fernseher"
       }
     },
     "stream_targets": {
@@ -156,6 +175,11 @@
       "spotify_kueche": {
         "zones": [
           "essen"
+        ]
+      },
+      "spotify_draussen": {
+        "zones": [
+          "draussen"
         ]
       }
     }
