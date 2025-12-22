@@ -174,6 +174,21 @@ def wait_for_clients(expected_rooms: list, timeout: int = 30) -> dict:
     return get_snapcast_status()
 
 
+def get_snapcast_stream_name(stream_id: str, stream_config: dict) -> str:
+    """Get the Snapcast stream name (matches generate_snapserver_conf.py naming)."""
+    stream_type = stream_config.get("type", "pipe")
+    name = stream_config.get("name", stream_id)
+
+    if stream_type == "librespot":
+        return f"Spotify {name}"
+    elif stream_type == "airplay":
+        return f"AirPlay {name}"
+    elif stream_type == "pipe" and stream_id == "default":
+        return "Default"
+    else:
+        return name if name != stream_id else stream_id
+
+
 def resolve_stream_rooms(config: dict, stream_id: str) -> set:
     """Resolve which rooms should be assigned to a stream based on stream_targets."""
     stream_targets = config.get("snapcast", {}).get("stream_targets", {})
@@ -206,26 +221,51 @@ def configure_snapcast_groups(config: dict, status: dict):
     rooms = config.get("rooms", {})
     streams = config.get("snapcast", {}).get("streams", {})
 
-    # Build client -> group map
+    # Build client -> group map and track group IDs
     client_to_group = {}
+    group_ids = set()
     for group in status.get("groups", []):
+        group_ids.add(group["id"])
         for client in group.get("clients", []):
             client_id = client.get("id", "")
             client_to_group[client_id] = group["id"]
 
-    # Build room -> stream map using stream_targets
+    # Set client names based on room display names
+    print("\n  Setting client names...")
+    for room_id, room_info in rooms.items():
+        room_display_name = room_info.get("name", room_id.title())
+        # Find clients for this room
+        for client_id in client_to_group.keys():
+            if client_id == f"room_{room_id}":
+                snapcast_request("Client.SetName", {"id": client_id, "name": room_display_name})
+                print(f"    {client_id} -> '{room_display_name}'")
+            elif client_id.startswith(f"room_{room_id}_"):
+                # Cross-device client (e.g., room_kueche_left)
+                suffix = client_id.split("_")[-1].title()
+                client_name = f"{room_display_name} {suffix}"
+                snapcast_request("Client.SetName", {"id": client_id, "name": client_name})
+                print(f"    {client_id} -> '{client_name}'")
+
+    # Build room -> stream map using stream_targets (with friendly names)
     room_to_stream = {}
-    for stream_id in streams.keys():
+    for stream_id, stream_config in streams.items():
+        snapcast_name = get_snapcast_stream_name(stream_id, stream_config)
         target_rooms = resolve_stream_rooms(config, stream_id)
         for room_id in target_rooms:
             # Later streams override earlier ones (allows specific overrides)
-            room_to_stream[room_id] = stream_id
+            room_to_stream[room_id] = snapcast_name
 
-    # For each room, assign to target stream
+    # Get default stream name
+    default_stream_config = streams.get("default", {"type": "pipe"})
+    default_stream_name = get_snapcast_stream_name("default", default_stream_config)
+
+    # For each room, assign to target stream and set group name
     print(f"\n  Assigning {len(rooms)} rooms to streams...")
 
-    for room_id in rooms.keys():
-        target_stream = room_to_stream.get(room_id, "default")
+    groups_named = set()
+    for room_id, room_info in rooms.items():
+        target_stream = room_to_stream.get(room_id, default_stream_name)
+        room_display_name = room_info.get("name", room_id.title())
 
         # Find all clients for this room (including _left/_right for cross-device)
         room_clients = []
@@ -236,8 +276,13 @@ def configure_snapcast_groups(config: dict, status: dict):
         for client_id in room_clients:
             group_id = client_to_group.get(client_id)
             if group_id:
+                # Set stream for the group
                 snapcast_request("Group.SetStream", {"id": group_id, "stream_id": target_stream})
-                print(f"    {client_id} -> {target_stream}")
+                # Set group name to match room display name (only once per group)
+                if group_id not in groups_named:
+                    snapcast_request("Group.SetName", {"id": group_id, "name": room_display_name})
+                    groups_named.add(group_id)
+                print(f"    {room_display_name} -> {target_stream}")
 
     print("\n  Room assignment complete!")
 
