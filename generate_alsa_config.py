@@ -123,7 +123,7 @@ pcm.{amp_name}_ch{ch} {{
     return output, amp_cards
 
 
-def get_speaker_info(config: dict, speaker_name: str) -> dict:
+def get_speaker_info(config: dict, speaker_name: str, max_vol: float) -> dict:
     """Get full speaker info including amplifier details."""
     if not speaker_name or speaker_name not in config["speakers"]:
         return None
@@ -132,20 +132,25 @@ def get_speaker_info(config: dict, speaker_name: str) -> dict:
     amp_name = speaker["amplifier"]
     amp = config["amplifiers"].get(amp_name, {})
 
+    # Calculate effective volume: speaker volume (0-100) * global max_volume
+    speaker_vol = speaker.get("volume", 100) / 100.0
+    effective_vol = speaker_vol * max_vol
+
     return {
         "amplifier": amp_name,
         "card": amp.get("card", ""),
-        "channel": speaker["channel"]
+        "channel": speaker["channel"],
+        "volume": effective_vol
     }
 
 
-def get_room_speakers(config: dict) -> dict:
+def get_room_speakers(config: dict, max_vol: float) -> dict:
     """Get speaker pairs for each room."""
     rooms = {}
 
     for room_id, room_info in config["rooms"].items():
-        left_info = get_speaker_info(config, room_info.get("left"))
-        right_info = get_speaker_info(config, room_info.get("right"))
+        left_info = get_speaker_info(config, room_info.get("left"), max_vol)
+        right_info = get_speaker_info(config, room_info.get("right"), max_vol)
 
         if left_info or right_info:
             rooms[room_id] = {
@@ -158,34 +163,37 @@ def get_room_speakers(config: dict) -> dict:
     return rooms
 
 
-def generate_same_device_config(room_id: str, left: dict, right: dict, max_vol: float) -> str:
+def generate_same_device_config(room_id: str, left: dict, right: dict) -> str:
     """Generate ALSA config for stereo pair on same device."""
     device = left["amplifier"]
     left_ch = left["channel"] - 1  # Convert to 0-based
     right_ch = right["channel"] - 1
+    left_vol = left["volume"]
+    right_vol = right["volume"]
 
     # Use dmix to allow concurrent access from multiple snapclients
+    # Note: internal routing device uses _internal_ prefix to avoid snapclient substring matching
     return f"""
 #########
 # room_{room_id} - Stereo (same device: {device})
 #########
 
-pcm.room_{room_id}_raw {{
+pcm._internal_{room_id} {{
     type route
     slave.pcm "{device}_dmix"
     slave.channels 8
-    ttable.0.{left_ch} {max_vol}
-    ttable.1.{right_ch} {max_vol}
+    ttable.0.{left_ch} {left_vol}
+    ttable.1.{right_ch} {right_vol}
 }}
 
 pcm.room_{room_id} {{
     type plug
-    slave.pcm "room_{room_id}_raw"
+    slave.pcm "_internal_{room_id}"
 }}
 """
 
 
-def generate_cross_device_config(room_id: str, left: dict, right: dict, max_vol: float) -> str:
+def generate_cross_device_config(room_id: str, left: dict, right: dict) -> str:
     """Generate ALSA config for stereo pair across different devices.
 
     Creates two separate mono devices for left and right speakers.
@@ -195,69 +203,74 @@ def generate_cross_device_config(room_id: str, left: dict, right: dict, max_vol:
     right_device = right["amplifier"]
     left_ch = left["channel"] - 1  # Convert to 0-based
     right_ch = right["channel"] - 1
+    left_vol = left["volume"]
+    right_vol = right["volume"]
 
+    # Note: internal routing devices use _internal_ prefix to avoid snapclient substring matching
     return f"""
 #########
 # room_{room_id} - Cross-device stereo: {left_device} ch{left_ch+1} + {right_device} ch{right_ch+1}
 # Use room_{room_id}_left and room_{room_id}_right with separate snapclients
 #########
 
-pcm.room_{room_id}_left_raw {{
+pcm._internal_{room_id}_left {{
     type route
     slave.pcm "{left_device}_dmix"
     slave.channels 8
-    ttable.0.{left_ch} {max_vol}
-    ttable.1.{left_ch} {max_vol}
+    ttable.0.{left_ch} {left_vol}
+    ttable.1.{left_ch} {left_vol}
 }}
 
 pcm.room_{room_id}_left {{
     type plug
-    slave.pcm "room_{room_id}_left_raw"
+    slave.pcm "_internal_{room_id}_left"
 }}
 
-pcm.room_{room_id}_right_raw {{
+pcm._internal_{room_id}_right {{
     type route
     slave.pcm "{right_device}_dmix"
     slave.channels 8
-    ttable.0.{right_ch} {max_vol}
-    ttable.1.{right_ch} {max_vol}
+    ttable.0.{right_ch} {right_vol}
+    ttable.1.{right_ch} {right_vol}
 }}
 
 pcm.room_{room_id}_right {{
     type plug
-    slave.pcm "room_{room_id}_right_raw"
+    slave.pcm "_internal_{room_id}_right"
 }}
 
 # Combined device for testing (mono mix to left speaker only)
 pcm.room_{room_id} {{
     type plug
-    slave.pcm "room_{room_id}_left_raw"
+    slave.pcm "_internal_{room_id}_left"
 }}
 """
 
 
-def generate_mono_config(room_id: str, speaker: dict, position: str, max_vol: float) -> str:
+def generate_mono_config(room_id: str, speaker: dict, position: str) -> str:
     """Generate ALSA config for mono speaker (missing left or right)."""
     device = speaker["amplifier"]
     channel = speaker["channel"] - 1  # Convert to 0-based
+    vol = speaker["volume"]
 
     # Use dmix to allow concurrent access from multiple snapclients
+    # Note: internal routing device uses _internal_ prefix to avoid snapclient substring matching
     return f"""
 #########
 # room_{room_id} - Mono ({position} only on {device})
 #########
 
-pcm.room_{room_id}_raw {{
+pcm._internal_{room_id} {{
     type route
     slave.pcm "{device}_dmix"
     slave.channels 8
-    ttable.0.{channel} {max_vol}
-    ttable.1.{channel} {max_vol}
+    ttable.0.{channel} {vol}
+    ttable.1.{channel} {vol}
 }}
 
 pcm.room_{room_id} {{
     type plug
-    slave.pcm "room_{room_id}_raw"
+    slave.pcm "_internal_{room_id}"
 }}
 """
 
@@ -352,16 +365,16 @@ def main():
     print("=" * 50, file=sys.stderr)
 
     config = load_config()
-    rooms = get_room_speakers(config)
+    max_vol = get_max_volume(config)
+    rooms = get_room_speakers(config, max_vol)
 
     if not rooms:
         print("No rooms configured!", file=sys.stderr)
         sys.exit(1)
 
     amplifiers = config.get("amplifiers", {})
-    max_vol = get_max_volume(config)
     print(f"\nGenerating config for {len(amplifiers)} amplifier(s) and {len(rooms)} room(s)...", file=sys.stderr)
-    print(f"Max volume coefficient: {max_vol} ({max_vol*100:.0f}%)\n", file=sys.stderr)
+    print(f"Global max volume: {max_vol} ({max_vol*100:.0f}%)\n", file=sys.stderr)
 
     # Generate header
     output = """
@@ -392,18 +405,18 @@ def main():
         if left and right:
             if left["amplifier"] == right["amplifier"]:
                 # Same device - use route plugin
-                output += generate_same_device_config(room_id, left, right, max_vol)
-                print(f"  room_{room_id}: stereo on {left['amplifier']} (ch{left['channel']}, ch{right['channel']})", file=sys.stderr)
+                output += generate_same_device_config(room_id, left, right)
+                print(f"  room_{room_id}: stereo on {left['amplifier']} (ch{left['channel']}, ch{right['channel']}) vol={left['volume']:.0%}/{right['volume']:.0%}", file=sys.stderr)
             else:
                 # Different devices - use multi plugin
-                output += generate_cross_device_config(room_id, left, right, max_vol)
-                print(f"  room_{room_id}: cross-device ({left['amplifier']}_ch{left['channel']} + {right['amplifier']}_ch{right['channel']})", file=sys.stderr)
+                output += generate_cross_device_config(room_id, left, right)
+                print(f"  room_{room_id}: cross-device ({left['amplifier']}_ch{left['channel']} + {right['amplifier']}_ch{right['channel']}) vol={left['volume']:.0%}/{right['volume']:.0%}", file=sys.stderr)
         elif left:
-            output += generate_mono_config(room_id, left, "left", max_vol)
-            print(f"  room_{room_id}: mono (left only on {left['amplifier']}_ch{left['channel']})", file=sys.stderr)
+            output += generate_mono_config(room_id, left, "left")
+            print(f"  room_{room_id}: mono (left only on {left['amplifier']}_ch{left['channel']}) vol={left['volume']:.0%}", file=sys.stderr)
         elif right:
-            output += generate_mono_config(room_id, right, "right", max_vol)
-            print(f"  room_{room_id}: mono (right only on {right['amplifier']}_ch{right['channel']})", file=sys.stderr)
+            output += generate_mono_config(room_id, right, "right")
+            print(f"  room_{room_id}: mono (right only on {right['amplifier']}_ch{right['channel']}) vol={right['volume']:.0%}", file=sys.stderr)
 
     # Generate all_rooms combined output
     output += generate_all_rooms_config(rooms)

@@ -79,6 +79,42 @@
       "channel": 1,
       "volume": 100,
       "latency": 0
+    },
+    "kinderzimmer_lou_left": {
+      "amplifier": "amp2",
+      "channel": 3,
+      "volume": 7.5,
+      "latency": 0
+    },
+    "kinderzimmer_lou_right": {
+      "amplifier": "amp2",
+      "channel": 4,
+      "volume": 7.5,
+      "latency": 0
+    },
+    "kinderzimmer_linda_right": {
+      "amplifier": "amp2",
+      "channel": 5,
+      "volume": 7.5,
+      "latency": 0
+    },
+    "kinderzimmer_linda_left": {
+      "amplifier": "amp2",
+      "channel": 6,
+      "volume": 7.5,
+      "latency": 0
+    },
+    "elternbad_left": {
+      "amplifier": "amp2",
+      "channel": 2,
+      "volume": 100,
+      "latency": 0
+    },
+    "elternbad_right": {
+      "amplifier": "amp2",
+      "channel": 8,
+      "volume": 100,
+      "latency": 0
     }
   },
   "rooms": {
@@ -92,25 +128,57 @@
       "name": "Backupkueche",
       "left": "backupkueche_left",
       "right": "backupkueche_right",
-      "zones": ["essen"]
+      "zones": [
+        "essen"
+      ]
     },
     "kueche": {
       "name": "Kueche",
       "left": "kueche_left",
       "right": "kueche_right",
-      "zones": ["essen"]
+      "zones": [
+        "essen"
+      ]
     },
     "esszimmer": {
       "name": "Esszimmer",
       "left": "esszimmer_left",
       "right": "esszimmer_right",
-      "zones": ["essen"]
+      "zones": [
+        "essen"
+      ]
     },
     "vordach": {
       "name": "Vordach",
       "left": "vordach_left",
       "right": null,
-      "zones": ["draussen"]
+      "zones": [
+        "draussen"
+      ]
+    },
+    "kinderzimmer_lou": {
+      "name": "Kinderzimmer Lou",
+      "left": "kinderzimmer_lou_left",
+      "right": "kinderzimmer_lou_right",
+      "zones": [
+        "louise"
+      ]
+    },
+    "kinderzimmer_linda": {
+      "name": "Kinderzimmer Linda",
+      "left": "kinderzimmer_linda_left",
+      "right": "kinderzimmer_linda_right",
+      "zones": [
+        "linda"
+      ]
+    },
+    "elternbad": {
+      "name": "Elternbad",
+      "left": "elternbad_left",
+      "right": "elternbad_right",
+      "zones": [
+        "elternbad"
+      ]
     }
   },
   "zones": {
@@ -123,6 +191,15 @@
     },
     "draussen": {
       "name": "Draussen"
+    },
+    "linda": {
+      "name": "Linda"
+    },
+    "louise": {
+      "name": "Louise"
+    },
+    "elternbad": {
+      "name": "Elternbad"
     }
   },
   "snapcast": {
@@ -156,9 +233,21 @@
         "type": "librespot",
         "name": "Draussen"
       },
+      "spotify_linda": {
+        "type": "librespot",
+        "name": "Linda"
+      },
+      "spotify_louise": {
+        "type": "librespot",
+        "name": "Louise"
+      },
       "fernseher": {
         "type": "alsa",
         "input": "fernseher"
+      },
+      "spotify_elternbad": {
+        "type": "librespot",
+        "name": "Elternbad"
       }
     },
     "stream_targets": {
@@ -180,6 +269,21 @@
       "spotify_draussen": {
         "zones": [
           "draussen"
+        ]
+      },
+      "spotify_linda": {
+        "zones": [
+          "linda"
+        ]
+      },
+      "spotify_louise": {
+        "zones": [
+          "louise"
+        ]
+      },
+      "spotify_elternbad": {
+        "zones": [
+          "elternbad"
         ]
       }
     }
