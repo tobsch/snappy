@@ -1,7 +1,6 @@
 [Unit]
 Description=Snapcast client for %i
-After=sound.target snapserver.service
-Wants=snapserver.service
+After=sound.target
 
 [Service]
 Type=simple

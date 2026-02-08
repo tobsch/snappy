@@ -11,14 +11,17 @@ Deployment steps:
   2. Install to /etc/asound.conf (requires sudo)
   3. Generate Snapcast server config (stream sources)
   4. Install to /etc/snapserver.conf (requires sudo)
-  5. Restart snapserver service
-  6. Wait for snapclients to connect (timeout: 30s)
-  7. Configure Snapcast groups via JSON-RPC API based on stream_targets
+  5. Install service templates (snapclient, sendspin)
+  6. Restart snapserver service
+  7. Restart snapclient and sendspin services for all rooms
+  8. Wait for snapclients to connect (timeout: 30s)
+  9. Configure Snapcast groups via JSON-RPC API based on stream_targets
 
 Prerequisites:
   - speaker_config.json must exist (run speaker_identify.py first)
   - sudo access for installing configs and restarting services
   - snapserver and snapclient services configured
+  - sendspin installed (pip install sendspin)
   - Snapcast JSON-RPC API available on localhost:1705
 
 Usage:
@@ -46,10 +49,12 @@ import time
 from pathlib import Path
 
 CONFIG_FILE = Path(__file__).parent / "speaker_config.json"
+SERVICES_DIR = Path(__file__).parent / "services"
 SNAPCAST_HOST = "localhost"
 SNAPCAST_PORT = 1705  # TCP JSON-RPC port
 SNAPSERVER_CONF = "/etc/snapserver.conf"
 ASOUND_CONF = "/etc/asound.conf"
+SYSTEMD_DIR = "/etc/systemd/system"
 
 
 def load_config() -> dict:
@@ -100,6 +105,32 @@ def restart_snapserver():
     print("  Restarting snapserver...")
     run_command(["sudo", "systemctl", "restart", "snapserver"])
     time.sleep(2)  # Give it time to start
+
+
+def install_service_templates():
+    """Install systemd service templates for snapclient and sendspin."""
+    templates = ["snapclient@.service", "sendspin@.service"]
+    for template in templates:
+        src = SERVICES_DIR / template
+        if src.exists():
+            print(f"  Installing {template}")
+            run_command(["sudo", "cp", str(src), SYSTEMD_DIR])
+        else:
+            print(f"  Warning: {template} not found, skipping")
+    run_command(["sudo", "systemctl", "daemon-reload"])
+
+
+def restart_room_services(rooms: list):
+    """Restart snapclient and sendspin services for all rooms."""
+    print("  Restarting snapclient services...")
+    for room in rooms:
+        service = f"snapclient@room_{room}.service"
+        run_command(["sudo", "systemctl", "enable", "--now", service], check=False)
+
+    print("  Restarting sendspin services...")
+    for room in rooms:
+        service = f"sendspin@room_{room}.service"
+        run_command(["sudo", "systemctl", "enable", "--now", service], check=False)
 
 
 def snapcast_request(method: str, params: dict = None) -> dict:
@@ -297,31 +328,42 @@ def main():
     rooms = list(config.get("rooms", {}).keys())
 
     # Step 1: Generate and install ALSA config
-    print("\n[1/5] Generating ALSA configuration...")
+    print("\n[1/7] Generating ALSA configuration...")
     alsa_config = generate_alsa_config()
     install_config(alsa_config, ASOUND_CONF)
 
     # Step 2: Generate and install Snapcast config
-    print("\n[2/5] Generating Snapcast configuration...")
+    print("\n[2/7] Generating Snapcast configuration...")
     snap_config = generate_snapserver_config()
     install_config(snap_config, SNAPSERVER_CONF)
 
-    # Step 3: Restart snapserver
-    print("\n[3/5] Restarting Snapcast server...")
+    # Step 3: Install service templates
+    print("\n[3/7] Installing service templates...")
+    install_service_templates()
+
+    # Step 4: Restart snapserver
+    print("\n[4/7] Restarting Snapcast server...")
     restart_snapserver()
 
-    # Step 4: Wait for clients
-    print("\n[4/5] Waiting for Snapcast clients...")
+    # Step 5: Restart room services (snapclient + sendspin)
+    print("\n[5/7] Restarting room services...")
+    restart_room_services(rooms)
+
+    # Step 6: Wait for clients
+    print("\n[6/7] Waiting for Snapcast clients...")
     expected_clients = [f"room_{room}" for room in rooms]
     status = wait_for_clients(expected_clients, timeout=30)
 
-    # Step 5: Configure groups
-    print("\n[5/5] Configuring Snapcast groups...")
+    # Step 7: Configure groups
+    print("\n[7/7] Configuring Snapcast groups...")
     configure_snapcast_groups(config, status)
 
     print("\n" + "=" * 60)
     print("DEPLOYMENT COMPLETE")
     print("=" * 60)
+    print("\nServices running:")
+    print("  - snapclient@room_* -> localhost (local snapserver)")
+    print("  - sendspin@room_*   -> Lox audioserver (remote)")
     print("\nTest with:")
     for room in sorted(rooms)[:3]:
         print(f"  aplay -D room_{room} /usr/share/sounds/alsa/Front_Center.wav")

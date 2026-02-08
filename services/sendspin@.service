@@ -1,0 +1,14 @@
+[Unit]
+Description=Sendspin client for %i
+After=sound.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/tobias/.local/bin/sendspin daemon --url ws://192.168.0.235:7090/sendspin --id %i --name %i --audio-device %i
+Restart=on-failure
+RestartSec=5
+User=tobias
+
+[Install]
+WantedBy=multi-user.target

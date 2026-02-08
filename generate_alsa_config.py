@@ -207,10 +207,11 @@ def generate_cross_device_config(room_id: str, left: dict, right: dict) -> str:
     right_vol = right["volume"]
 
     # Note: internal routing devices use _internal_ prefix to avoid snapclient substring matching
+    # Individual speaker devices use speaker_ prefix to avoid sendspin prefix-matching room_{room_id}
     return f"""
 #########
 # room_{room_id} - Cross-device stereo: {left_device} ch{left_ch+1} + {right_device} ch{right_ch+1}
-# Use room_{room_id}_left and room_{room_id}_right with separate snapclients
+# Use speaker_{room_id}_left and speaker_{room_id}_right with separate snapclients
 #########
 
 pcm._internal_{room_id}_left {{
@@ -221,7 +222,7 @@ pcm._internal_{room_id}_left {{
     ttable.1.{left_ch} {left_vol}
 }}
 
-pcm.room_{room_id}_left {{
+pcm.speaker_{room_id}_left {{
     type plug
     slave.pcm "_internal_{room_id}_left"
 }}
@@ -234,7 +235,7 @@ pcm._internal_{room_id}_right {{
     ttable.1.{right_ch} {right_vol}
 }}
 
-pcm.room_{room_id}_right {{
+pcm.speaker_{room_id}_right {{
     type plug
     slave.pcm "_internal_{room_id}_right"
 }}
