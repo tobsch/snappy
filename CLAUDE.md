@@ -197,4 +197,22 @@ If sendspin can't connect to the Lox audioserver:
 3. Restart the service: `sudo systemctl restart sendspin@room_<name>.service`
 
 **Sendspin device matching**: Sendspin uses prefix matching (`startswith()`) for audio device selection. This is why cross-device speaker devices use `speaker_` prefix instead of `room_` - to avoid `room_esszimmer` matching `room_esszimmer_left`. With correct ALSA naming, parallel startup works reliably.
-- how do they send audio to the speakers?
+
+### Powermanager not turning off amps
+
+If amplifiers stay powered on even when no audio is playing, check for stale ALSA streams:
+
+```bash
+cat /proc/asound/amp1/pcm0p/sub0/status
+```
+
+A stale stream (e.g., from sendspin keeping the device open after audio ends) shows:
+- `state: RUNNING` but no actual audio
+- `avail_max` in the millions (e.g., 138,000,000+)
+- `delay` massively negative (e.g., -138,000,000)
+
+Real audio playback shows:
+- `avail_max` around 40,000-65,000 (normal buffer size)
+- `delay` small or moderately negative
+
+The powermanager uses `avail_max < 1,000,000` as the threshold to distinguish real audio from stale streams. This threshold equals ~20 seconds of staleness at 48kHz sample rate.

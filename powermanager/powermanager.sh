@@ -25,7 +25,12 @@ is_any_card_active() {
     for status_file in /proc/asound/${card}/pcm*/sub*/status; do
       [ -e "$status_file" ] || continue
       if grep -q "RUNNING" "$status_file" 2>/dev/null; then
-        return 0
+        # Check avail_max - stale streams accumulate millions, real audio stays ~40k
+        # Threshold of 1M samples = ~20 seconds of staleness at 48kHz
+        avail_max=$(grep "avail_max" "$status_file" 2>/dev/null | awk '{print $3}')
+        if [[ -n "$avail_max" ]] && (( avail_max < 1000000 )); then
+          return 0
+        fi
       fi
     done
   done
