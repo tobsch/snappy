@@ -215,4 +215,4 @@ Real audio playback shows:
 - `avail_max` around 40,000-65,000 (normal buffer size)
 - `delay` small or moderately negative
 
-The powermanager uses `avail_max < 1,000,000` as the threshold to distinguish real audio from stale streams. This threshold equals ~20 seconds of staleness at 48kHz sample rate.
+The powermanager checks if the owner process is still alive (`kill -0 $pid`). If the process is dead, the stream is considered orphaned/stale and ignored. Live processes are trusted as active.

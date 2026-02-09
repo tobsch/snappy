@@ -25,12 +25,12 @@ is_any_card_active() {
     for status_file in /proc/asound/${card}/pcm*/sub*/status; do
       [ -e "$status_file" ] || continue
       if grep -q "RUNNING" "$status_file" 2>/dev/null; then
-        # Check avail_max - stale streams accumulate millions, real audio stays ~40k
-        # Threshold of 1M samples = ~20 seconds of staleness at 48kHz
-        avail_max=$(grep "avail_max" "$status_file" 2>/dev/null | awk '{print $3}')
-        if [[ -n "$avail_max" ]] && (( avail_max < 1000000 )); then
+        # Check if owner process is still alive - dead process = orphaned stale stream
+        owner_pid=$(grep "owner_pid" "$status_file" 2>/dev/null | awk '{print $3}')
+        if [[ -n "$owner_pid" ]] && kill -0 "$owner_pid" 2>/dev/null; then
           return 0
         fi
+        # Process dead = orphaned stale stream, continue checking other cards
       fi
     done
   done
