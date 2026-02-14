@@ -215,4 +215,11 @@ Real audio playback shows:
 - `avail_max` around 40,000-65,000 (normal buffer size)
 - `delay` small or moderately negative
 
-The powermanager checks if the owner process is still alive (`kill -0 $pid`). If the process is dead, the stream is considered orphaned/stale and ignored. Live processes are trusted as active.
+The powermanager detects stale streams by checking:
+1. Owner process must be alive (`kill -0 $pid`) - dead process = orphaned stream
+2. `appl_ptr` must be non-zero - zero means app never wrote to current position (catches PID-recycled streams)
+3. `avail_max` must be < 100M samples (~35 min at 48kHz) - higher = stale too long
+
+**PID recycling issue**: When a process dies but its PID gets reused by another process (e.g., sendspin dies, snapclient gets same PID), the `kill -0` check passes incorrectly. The `appl_ptr=0` check catches this - orphaned streams have appl_ptr stuck at 0 while hw_ptr grows.
+
+At startup, the powermanager immediately syncs relay state to current activity. A 5-second cooldown after turning the relay off prevents false re-activation from USB amp power-cycle resetting ALSA state.
