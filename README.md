@@ -274,3 +274,55 @@ The tool handles stereo pairs split across different amplifiers. For example, if
 ## Zones
 
 Rooms can belong to multiple zones (tag-based, not hierarchical). Zones are used by Snapcast to group rooms for streaming - they are not managed by ALSA. The special zone `alle` with `include_all: true` automatically includes all rooms.
+
+## Web Interface
+
+A browser-based interface for managing the multiroom audio system. Built with FastAPI, HTMX, and Jinja2.
+
+### Setup
+
+```bash
+cd webui
+python3 -m venv venv
+./venv/bin/pip install -r requirements.txt
+```
+
+### Running
+
+**Development (with auto-reload):**
+```bash
+cd webui
+./venv/bin/uvicorn app:app --host 0.0.0.0 --port 8080 --reload
+```
+
+**Production (systemd):**
+```bash
+sudo cp webui/webui.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now webui
+```
+
+Access at `http://<hostname>:8080`
+
+### Features
+
+| Page | Description |
+|------|-------------|
+| **Dashboard** | Overview of rooms, zones, streams, amplifiers with quick test buttons |
+| **Amplifiers** | View all amplifier channels, see room assignments, test individual channels (chime or TTS) |
+| **Rooms** | Manage rooms, adjust per-speaker volume, test left/right/stereo |
+| **Zones & Streams** | Create/delete zones, assign rooms to zones, toggle Spotify/AirPlay per zone |
+| **Playback** | View Snapcast status (streams, groups, connected clients) |
+| **Settings** | Global volume limit, amplifier power control (relay), deploy configuration, service status |
+
+### API
+
+REST API available at `/api/`. Key endpoints:
+
+- `GET /api/config` - Full configuration
+- `POST /api/test/channel` - Test amplifier channel (chime/TTS)
+- `POST /api/test/room` - Test room playback
+- `POST /api/deploy` - Deploy configuration
+- `GET /api/system/powermanager` - Relay state and audio activity
+- `POST /api/system/relay` - Control amplifier power
+- `GET /api/snapcast/status` - Snapcast server status

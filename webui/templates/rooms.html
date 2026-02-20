@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}Rooms - Multiroom Audio{% endblock %}
+
+{% block content %}
+<h1>Rooms</h1>
+
+<div class="rooms-list">
+    {% for room in rooms %}
+    <div class="room-card-large">
+        <div class="room-header">
+            <h3>{{ room.name }}</h3>
+            <div class="room-zones">
+                {% for zone_id in room.zones %}
+                <span class="badge">{{ zones[zone_id].name if zone_id in zones else zone_id }}</span>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="room-speakers">
+            <div class="speaker {% if room.left %}active{% else %}inactive{% endif %}">
+                <div class="speaker-label">Left</div>
+                {% if room.left %}
+                <div class="speaker-info">
+                    {{ room.left.speaker.amplifier }} / Channel {{ room.left.speaker.channel }}
+                </div>
+                <div class="speaker-volume">
+                    <input type="range" min="0" max="100"
+                           value="{{ room.left.speaker.volume }}"
+                           data-speaker="{{ room.left.id }}"
+                           onchange="updateVolume(this)">
+                    <span class="volume-value">{{ room.left.speaker.volume }}%</span>
+                </div>
+                <button class="btn btn-small"
+                        onclick="testChannel('{{ room.left.speaker.amplifier }}', {{ room.left.speaker.channel }})">
+                    Test L
+                </button>
+                {% else %}
+                <div class="speaker-info text-muted">Not assigned</div>
+                {% endif %}
+            </div>
+
+            <div class="speaker {% if room.right %}active{% else %}inactive{% endif %}">
+                <div class="speaker-label">Right</div>
+                {% if room.right %}
+                <div class="speaker-info">
+                    {{ room.right.speaker.amplifier }} / Channel {{ room.right.speaker.channel }}
+                </div>
+                <div class="speaker-volume">
+                    <input type="range" min="0" max="100"
+                           value="{{ room.right.speaker.volume }}"
+                           data-speaker="{{ room.right.id }}"
+                           onchange="updateVolume(this)">
+                    <span class="volume-value">{{ room.right.speaker.volume }}%</span>
+                </div>
+                <button class="btn btn-small"
+                        onclick="testChannel('{{ room.right.speaker.amplifier }}', {{ room.right.speaker.channel }})">
+                    Test R
+                </button>
+                {% else %}
+                <div class="speaker-info text-muted">Not assigned</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="room-actions">
+            <button class="btn btn-primary" onclick="testRoom('{{ room.id }}')">
+                Stereo Test
+            </button>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<script>
+async function testChannel(amplifier, channel) {
+    try {
+        const response = await fetch('/api/test/channel', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({amplifier, channel, type: 'chime'})
+        });
+        if (response.ok) {
+            showToast('Test played');
+        } else {
+            showToast('Error', true);
+        }
+    } catch (e) {
+        showToast('Connection error', true);
+    }
+}
+
+async function testRoom(roomId) {
+    try {
+        const response = await fetch('/api/test/room', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({room: roomId, position: 'stereo'})
+        });
+        if (response.ok) {
+            showToast('Stereo test played');
+        } else {
+            showToast('Error', true);
+        }
+    } catch (e) {
+        showToast('Connection error', true);
+    }
+}
+
+async function updateVolume(input) {
+    const speakerId = input.dataset.speaker;
+    const volume = parseInt(input.value);
+
+    input.nextElementSibling.textContent = volume + '%';
+
+    try {
+        const response = await fetch(`/api/config/speakers`);
+        const speakers = await response.json();
+        const speaker = speakers[speakerId];
+
+        if (speaker) {
+            speaker.volume = volume;
+            await fetch(`/api/config/speakers/${speakerId}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(speaker)
+            });
+        }
+    } catch (e) {
+        showToast('Error saving', true);
+    }
+}
+</script>
+{% endblock %}

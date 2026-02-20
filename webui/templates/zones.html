@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+
+{% block title %}Zones & Streams - Multiroom Audio{% endblock %}
+
+{% block content %}
+<h1>Zones & Streams</h1>
+
+<div class="section">
+    <h2>Create New Zone</h2>
+    <form id="create-zone-form" onsubmit="createZone(event)">
+        <div class="form-row">
+            <input type="text" id="new-zone-id" placeholder="Zone ID (e.g. living)" required pattern="[a-z0-9_]+">
+            <input type="text" id="new-zone-name" placeholder="Display name (e.g. Living Room)" required>
+            <label class="checkbox-label">
+                <input type="checkbox" id="new-zone-include-all">
+                All Rooms
+            </label>
+            <button type="submit" class="btn btn-primary">Create Zone</button>
+        </div>
+    </form>
+</div>
+
+{% for zone in zones %}
+<div class="section zone-section" id="zone-{{ zone.id }}">
+    <div class="zone-main-header">
+        <div class="zone-title">
+            <h2>
+                {{ zone.name }}
+                {% if zone.include_all %}
+                <span class="badge badge-special">All Rooms</span>
+                {% endif %}
+            </h2>
+            <div class="zone-rooms-inline">
+                {% if zone.rooms %}
+                    {% for room in zone.rooms %}
+                    <span class="room-tag-small">{{ room.name }}</span>
+                    {% endfor %}
+                {% else %}
+                    <span class="text-muted">No rooms assigned</span>
+                {% endif %}
+                <button class="btn btn-small" onclick="editZoneRooms('{{ zone.id }}', '{{ zone.name }}')">Edit</button>
+            </div>
+        </div>
+        <div class="zone-actions-header">
+            <button class="btn btn-small" onclick="testZone('{{ zone.id }}', {{ zone.rooms | map(attribute='id') | list | tojson }})">
+                Test
+            </button>
+            <button class="btn btn-small btn-danger" onclick="deleteZone('{{ zone.id }}', '{{ zone.name }}')">
+                Delete
+            </button>
+        </div>
+    </div>
+
+    <div class="stream-toggles">
+        <label class="stream-toggle spotify">
+            <input type="checkbox"
+                   {% if zone.has_spotify %}checked{% endif %}
+                   onchange="toggleStream('{{ zone.id }}', 'spotify', this.checked)">
+            <span class="toggle-icon">🎵</span>
+            <span class="toggle-label">Spotify</span>
+        </label>
+
+        <label class="stream-toggle airplay">
+            <input type="checkbox"
+                   {% if zone.has_airplay %}checked{% endif %}
+                   onchange="toggleStream('{{ zone.id }}', 'airplay', this.checked)">
+            <span class="toggle-icon">📱</span>
+            <span class="toggle-label">AirPlay</span>
+        </label>
+    </div>
+</div>
+{% endfor %}
+
+<!-- Edit Zone Rooms Modal -->
+<div id="edit-rooms-modal" class="modal hidden">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="edit-rooms-title">Edit Rooms</h3>
+            <button class="btn btn-small" onclick="closeRoomsModal()">&times;</button>
+        </div>
+        <form id="edit-rooms-form" onsubmit="saveZoneRooms(event)">
+            <input type="hidden" id="edit-zone-id">
+            <div id="rooms-checkboxes" class="rooms-checkbox-list">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="closeRoomsModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+const allRooms = {{ all_rooms | tojson }};
+
+async function editZoneRooms(zoneId, zoneName) {
+    document.getElementById('edit-zone-id').value = zoneId;
+    document.getElementById('edit-rooms-title').textContent = `Rooms for "${zoneName}"`;
+
+    // Get current rooms in this zone
+    const response = await fetch('/api/config/rooms');
+    const rooms = await response.json();
+
+    let html = '';
+    for (const [roomId, room] of Object.entries(rooms)) {
+        const inZone = (room.zones || []).includes(zoneId);
+        html += `
+            <label class="room-checkbox">
+                <input type="checkbox" name="room" value="${roomId}" ${inZone ? 'checked' : ''}>
+                ${room.name || roomId}
+            </label>
+        `;
+    }
+    document.getElementById('rooms-checkboxes').innerHTML = html;
+    document.getElementById('edit-rooms-modal').classList.remove('hidden');
+}
+
+function closeRoomsModal() {
+    document.getElementById('edit-rooms-modal').classList.add('hidden');
+}
+
+async function saveZoneRooms(event) {
+    event.preventDefault();
+    const zoneId = document.getElementById('edit-zone-id').value;
+    const checkboxes = document.querySelectorAll('#rooms-checkboxes input[type="checkbox"]');
+
+    // Get selected room IDs
+    const selectedRooms = [];
+    checkboxes.forEach(cb => {
+        if (cb.checked) selectedRooms.push(cb.value);
+    });
+
+    try {
+        const response = await fetch(`/api/zones/${zoneId}/rooms`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({rooms: selectedRooms})
+        });
+        if (response.ok) {
+            showToast('Saved');
+            closeRoomsModal();
+            setTimeout(() => location.reload(), 500);
+        } else {
+            showToast('Error saving', true);
+        }
+    } catch (e) {
+        showToast('Connection error', true);
+    }
+}
+
+document.getElementById('edit-rooms-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeRoomsModal();
+});
+
+async function createZone(event) {
+    event.preventDefault();
+    const zoneId = document.getElementById('new-zone-id').value.trim().toLowerCase();
+    const zoneName = document.getElementById('new-zone-name').value.trim();
+    const includeAll = document.getElementById('new-zone-include-all').checked;
+
+    try {
+        const response = await fetch(`/api/config/zones/${zoneId}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ name: zoneName, include_all: includeAll })
+        });
+        if (response.ok) {
+            showToast('Zone created');
+            setTimeout(() => location.reload(), 500);
+        } else {
+            showToast('Error creating', true);
+        }
+    } catch (e) {
+        showToast('Connection error', true);
+    }
+}
+
+async function deleteZone(zoneId, zoneName) {
+    if (!confirm(`Really delete zone "${zoneName}"?`)) return;
+    try {
+        const response = await fetch(`/api/config/zones/${zoneId}`, { method: 'DELETE' });
+        if (response.ok) {
+            showToast('Zone deleted');
+            document.getElementById(`zone-${zoneId}`).remove();
+        } else {
+            showToast('Error deleting', true);
+        }
+    } catch (e) {
+        showToast('Connection error', true);
+    }
+}
+
+async function testZone(zoneId, roomIds) {
+    if (roomIds.length === 0) {
+        showToast('No rooms in this zone', true);
+        return;
+    }
+    showToast('Testing zone...');
+    const promises = roomIds.map(roomId =>
+        fetch('/api/test/room', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({room: roomId, position: 'stereo'})
+        })
+    );
+    try {
+        await Promise.all(promises);
+        showToast('Zone tested');
+    } catch (e) {
+        showToast('Error testing', true);
+    }
+}
+
+async function toggleStream(zoneId, streamType, enabled) {
+    const streamId = `${streamType}_${zoneId}`;
+
+    try {
+        if (enabled) {
+            // Create stream and target
+            await fetch(`/api/zones/${zoneId}/streams/${streamType}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'}
+            });
+            showToast(`${streamType} enabled`);
+        } else {
+            // Remove stream
+            await fetch(`/api/zones/${zoneId}/streams/${streamType}`, {
+                method: 'DELETE'
+            });
+            showToast(`${streamType} disabled`);
+        }
+    } catch (e) {
+        showToast('Error', true);
+        // Revert checkbox
+        event.target.checked = !enabled;
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Multiroom Audio{% endblock %}
+
+{% block content %}
+<h1>Dashboard</h1>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ rooms|length }}</div>
+        <div class="stat-label">Rooms</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ zones|length }}</div>
+        <div class="stat-label">Zones</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ streams|length }}</div>
+        <div class="stat-label">Streams</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ amplifiers|length }}</div>
+        <div class="stat-label">Amplifiers</div>
+    </div>
+</div>
+
+<div class="section">
+    <h2>Quick Actions</h2>
+    <div class="button-group">
+        <button class="btn btn-primary"
+                hx-post="/api/deploy"
+                hx-swap="none"
+                hx-on::after-request="showToast(event.detail.successful ? 'Deployment successful' : 'Deployment failed', !event.detail.successful)">
+            Deploy Configuration
+        </button>
+        <button class="btn"
+                hx-get="/api/system/services"
+                hx-target="#services-status"
+                hx-swap="innerHTML">
+            Load Service Status
+        </button>
+    </div>
+</div>
+
+<div class="section">
+    <h2>Service Status</h2>
+    <div id="services-status" class="services-grid">
+        <p class="text-muted">Click "Load Service Status" to display status.</p>
+    </div>
+</div>
+
+<div class="section">
+    <h2>Rooms</h2>
+    <div class="rooms-grid">
+        {% for room_id, room in rooms.items() %}
+        <div class="room-card">
+            <div class="room-name">{{ room.name or room_id }}</div>
+            <div class="room-zones">
+                {% for zone_id in room.zones %}
+                <span class="badge">{{ zones[zone_id].name if zone_id in zones else zone_id }}</span>
+                {% endfor %}
+            </div>
+            <div class="room-actions">
+                <button class="btn btn-small" onclick="testRoom('{{ room_id }}')">
+                    Test
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<script>
+async function testRoom(roomId) {
+    try {
+        const response = await fetch('/api/test/room', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({room: roomId, position: 'stereo'})
+        });
+        if (response.ok) {
+            showToast('Test played');
+        } else {
+            showToast('Error', true);
+        }
+    } catch (e) {
+        showToast('Connection error', true);
+    }
+}
+</script>
+{% endblock %}

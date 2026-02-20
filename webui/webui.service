@@ -1,0 +1,14 @@
+[Unit]
+Description=Multiroom Audio Web Interface
+After=network.target
+
+[Service]
+Type=simple
+User=tobias
+WorkingDirectory=/home/tobias/multiroom-tooling/webui
+ExecStart=/home/tobias/multiroom-tooling/webui/venv/bin/uvicorn app:app --host 0.0.0.0 --port 8080
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

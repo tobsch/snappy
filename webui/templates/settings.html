@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Multiroom Audio{% endblock %}
+
+{% block content %}
+<h1>Settings</h1>
+
+<div class="section">
+    <h2>Global Settings</h2>
+
+    <div class="setting-row">
+        <label for="max-volume">Maximum Volume</label>
+        <div class="setting-control">
+            <input type="range" id="max-volume" min="0" max="100"
+                   value="{{ (max_volume * 100) | int }}"
+                   onchange="updateMaxVolume(this)">
+            <span id="max-volume-value">{{ (max_volume * 100) | int }}%</span>
+        </div>
+        <p class="setting-help">
+            Limits the maximum output volume of all speakers.
+        </p>
+    </div>
+</div>
+
+<div class="section">
+    <h2>Amplifier Power</h2>
+
+    <div class="powermanager-status" id="powermanager-status">
+        <p class="text-muted">Loading status...</p>
+    </div>
+
+    <div class="button-group" style="margin-top: 1rem;">
+        <button class="btn btn-success"
+                hx-post="/api/system/relay"
+                hx-vals='{"state": "on"}'
+                hx-swap="none"
+                hx-on::after-request="showToast(event.detail.successful ? 'Amplifiers turned on' : 'Error', !event.detail.successful); loadPowermanagerStatus();">
+            Amplifiers ON
+        </button>
+        <button class="btn btn-danger"
+                hx-post="/api/system/relay"
+                hx-vals='{"state": "off"}'
+                hx-swap="none"
+                hx-on::after-request="showToast(event.detail.successful ? 'Amplifiers turned off' : 'Error', !event.detail.successful); loadPowermanagerStatus();">
+            Amplifiers OFF
+        </button>
+        <button class="btn" onclick="loadPowermanagerStatus()">
+            Refresh Status
+        </button>
+    </div>
+    <p class="setting-help">
+        The power manager automatically turns amplifiers on/off based on audio activity.
+    </p>
+</div>
+
+<div class="section">
+    <h2>Deployment</h2>
+    <div class="button-group">
+        <button class="btn btn-primary"
+                hx-post="/api/deploy"
+                hx-swap="none"
+                hx-indicator="#deploy-spinner"
+                hx-on::after-request="showToast(event.detail.successful ? 'Deployment successful' : 'Deployment failed', !event.detail.successful)">
+            Deploy Configuration
+            <span id="deploy-spinner" class="spinner htmx-indicator"></span>
+        </button>
+        <button class="btn"
+                hx-get="/api/deploy/preview"
+                hx-target="#config-preview"
+                hx-swap="innerHTML">
+            Generate Preview
+        </button>
+    </div>
+
+    <div id="config-preview" class="config-preview"></div>
+</div>
+
+<div class="section">
+    <h2>Services</h2>
+    <button class="btn"
+            hx-get="/api/system/services"
+            hx-target="#services-list"
+            hx-swap="innerHTML">
+        Refresh Status
+    </button>
+
+    <div id="services-list" class="services-list">
+        <p class="text-muted">Click "Refresh Status" to load service status.</p>
+    </div>
+</div>
+
+<script>
+async function updateMaxVolume(input) {
+    const value = parseInt(input.value) / 100;
+    document.getElementById('max-volume-value').textContent = input.value + '%';
+
+    try {
+        await fetch('/api/config/global', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({max_volume: value})
+        });
+        showToast('Saved');
+    } catch (e) {
+        showToast('Error saving', true);
+    }
+}
+
+async function loadPowermanagerStatus() {
+    const container = document.getElementById('powermanager-status');
+    try {
+        const response = await fetch('/api/system/powermanager');
+        const data = await response.json();
+
+        let html = '<div class="powermanager-info">';
+        html += `<div class="status-row">
+            <span class="status-label">Relay:</span>
+            <span class="status-value ${data.relay_state === 'on' ? 'status-on' : 'status-off'}">
+                ${data.relay_state === 'on' ? 'ON (Amplifiers powered)' : 'OFF (Amplifiers off)'}
+            </span>
+        </div>`;
+        html += `<div class="status-row">
+            <span class="status-label">Audio Activity:</span>
+            <span class="status-value ${data.audio_active ? 'status-on' : 'status-off'}">
+                ${data.audio_active ? 'Active' : 'Inactive'}
+            </span>
+        </div>`;
+        if (data.active_cards && data.active_cards.length > 0) {
+            html += `<div class="status-row">
+                <span class="status-label">Active Cards:</span>
+                <span class="status-value">${data.active_cards.join(', ')}</span>
+            </div>`;
+        }
+        html += '</div>';
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = '<p class="error">Error loading status</p>';
+    }
+}
+
+// Load powermanager status on page load
+loadPowermanagerStatus();
+
+// Format config preview response
+document.body.addEventListener('htmx:afterSwap', function(event) {
+    if (event.target.id === 'config-preview') {
+        const data = JSON.parse(event.target.textContent);
+        event.target.innerHTML = `
+            <h3>ALSA Config</h3>
+            <pre><code>${escapeHtml(data.alsa_config)}</code></pre>
+            <h3>Snapserver Config</h3>
+            <pre><code>${escapeHtml(data.snapserver_config)}</code></pre>
+        `;
+    }
+    if (event.target.id === 'services-list') {
+        const data = JSON.parse(event.target.textContent);
+        let html = '<div class="services-grid">';
+        for (const [service, status] of Object.entries(data)) {
+            const statusClass = status === 'active' ? 'active' : 'inactive';
+            html += `
+                <div class="service-row ${statusClass}">
+                    <span class="service-name">${service}</span>
+                    <span class="service-status">${status}</span>
+                </div>
+            `;
+        }
+        html += '</div>';
+        event.target.innerHTML = html;
+    }
+});
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}

@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Amplifiers - Multiroom Audio{% endblock %}
+
+{% block content %}
+<h1>Amplifiers</h1>
+
+<div class="test-mode-toggle">
+    <label>
+        <input type="radio" name="test-mode" value="chime" checked onchange="setTestMode('chime')">
+        Chime
+    </label>
+    <label>
+        <input type="radio" name="test-mode" value="tts" onchange="setTestMode('tts')">
+        TTS
+    </label>
+</div>
+
+{% for amp in amplifiers %}
+<div class="section">
+    <h2>{{ amp.id }} <span class="text-muted">({{ amp.card }})</span></h2>
+
+    <div class="channel-grid">
+        {% for ch in amp.channels %}
+        <div class="channel-tile {% if ch.assignment %}assigned{% else %}unassigned{% endif %}">
+            <div class="channel-number">{{ ch.number }}</div>
+
+            {% if ch.assignment %}
+            <div class="channel-room">{{ ch.assignment.room_name or '?' }}</div>
+            <div class="channel-position">{{ ch.assignment.position }}</div>
+            {% else %}
+            <div class="channel-room">---</div>
+            {% endif %}
+
+            <div class="channel-buttons">
+                <button class="btn btn-icon test-btn"
+                        data-amp="{{ amp.id }}"
+                        data-channel="{{ ch.number }}"
+                        onclick="testChannel(this)"
+                        title="Play test">
+                    &#9654;
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endfor %}
+
+<script>
+let currentTestMode = 'chime';
+
+function setTestMode(mode) {
+    currentTestMode = mode;
+}
+
+async function testChannel(btn) {
+    const amp = btn.dataset.amp;
+    const channel = parseInt(btn.dataset.channel);
+
+    btn.disabled = true;
+    btn.classList.add('loading');
+
+    try {
+        const response = await fetch('/api/test/channel', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                amplifier: amp,
+                channel: channel,
+                type: currentTestMode
+            })
+        });
+
+        if (response.ok) {
+            showToast('Test played');
+        } else {
+            showToast('Playback error', true);
+        }
+    } catch (e) {
+        showToast('Connection error', true);
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+    }
+}
+</script>
+{% endblock %}

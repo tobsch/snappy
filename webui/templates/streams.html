@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Streams - Multiroom Audio{% endblock %}
+
+{% block content %}
+<h1>Streams</h1>
+
+<div class="streams-list">
+    {% for stream in streams %}
+    <div class="stream-card">
+        <div class="stream-header">
+            <span class="stream-type-badge {{ stream.type }}">{{ stream.type }}</span>
+            <h3>{{ stream.name }}</h3>
+        </div>
+
+        <div class="stream-details">
+            {% if stream.type == 'librespot' %}
+            <div class="detail">Bitrate: {{ stream.config.bitrate or 320 }} kbps</div>
+            {% elif stream.type == 'airplay' %}
+            <div class="detail">Port: {{ stream.config.port or 7000 }}</div>
+            {% elif stream.type == 'pipe' %}
+            <div class="detail">Pfad: {{ stream.config.path }}</div>
+            {% elif stream.type == 'alsa' %}
+            <div class="detail">Input: {{ stream.config.input or stream.config.device }}</div>
+            {% endif %}
+        </div>
+
+        <div class="stream-targets">
+            <strong>Ziele:</strong>
+            {% if stream.target_zones %}
+                {% for zone_id in stream.target_zones %}
+                <span class="badge">{{ zones[zone_id].name if zone_id in zones else zone_id }}</span>
+                {% endfor %}
+            {% endif %}
+            {% if stream.target_rooms %}
+                {% for room_id in stream.target_rooms %}
+                <span class="badge badge-room">{{ rooms[room_id].name if room_id in rooms else room_id }}</span>
+                {% endfor %}
+            {% endif %}
+            {% if not stream.target_zones and not stream.target_rooms %}
+                <span class="text-muted">Keine Ziele</span>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

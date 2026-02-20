@@ -20,9 +20,25 @@ Multiroom Audio Tooling - identifies and configures speakers connected to multi-
 ├── services/
 │   ├── snapclient@.service  # Systemd template for per-room snapclients (local)
 │   └── sendspin@.service    # Systemd template for per-room sendspin clients (remote)
-└── powermanager/
-    ├── powermanager.sh      # Auto relay control based on ALSA activity
-    └── powermanager.service # Systemd service for power manager
+├── powermanager/
+│   ├── powermanager.sh      # Auto relay control based on ALSA activity
+│   └── powermanager.service # Systemd service for power manager
+└── webui/
+    ├── app.py               # FastAPI application entry point
+    ├── requirements.txt     # Python dependencies
+    ├── webui.service        # Systemd service for web interface
+    ├── routers/
+    │   ├── api.py           # REST API endpoints
+    │   └── pages.py         # HTML page routes
+    ├── services/
+    │   ├── config.py        # Configuration file CRUD operations
+    │   ├── audio.py         # TTS and chime playback
+    │   └── snapcast.py      # Snapcast JSON-RPC client
+    ├── templates/           # Jinja2 HTML templates
+    └── static/
+        ├── css/style.css    # Styling
+        ├── js/app.js        # Toast notifications
+        └── sounds/          # Test chime sound
 ```
 
 ## Commands
@@ -46,7 +62,61 @@ aplay -D room_<roomname> test.wav
 
 # Test playback to all rooms
 aplay -D all_rooms test.wav
+
+# Start web interface (development)
+cd webui && ./venv/bin/uvicorn app:app --host 0.0.0.0 --port 8080 --reload
+
+# Start web interface (production via systemd)
+sudo systemctl start webui
 ```
+
+## Web Interface
+
+The web UI provides a browser-based interface for managing the multiroom audio system. Built with FastAPI + HTMX + Jinja2.
+
+### Running the Web UI
+
+```bash
+# First time setup
+cd webui
+python3 -m venv venv
+./venv/bin/pip install -r requirements.txt
+
+# Development (with auto-reload)
+./venv/bin/uvicorn app:app --host 0.0.0.0 --port 8080 --reload
+
+# Production (systemd)
+sudo cp webui/webui.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now webui
+```
+
+Access at `http://<hostname>:8080`
+
+### Features
+
+- **Dashboard** - Overview of rooms, zones, streams, amplifiers with quick test buttons
+- **Amplifiers** - View all amplifier channels, see room assignments, test individual channels (chime or TTS)
+- **Rooms** - Manage rooms, adjust per-speaker volume, test left/right/stereo
+- **Zones & Streams** - Create/delete zones, assign rooms to zones, toggle Spotify/AirPlay per zone
+- **Playback** - View Snapcast status (streams, groups, connected clients)
+- **Settings** - Global volume limit, amplifier power control (relay), deploy configuration, service status
+
+### API Endpoints
+
+Key REST API endpoints (all under `/api/`):
+
+- `GET /config` - Full configuration
+- `GET/POST/PUT/DELETE /config/rooms/{id}` - Room CRUD
+- `GET/POST/PUT/DELETE /config/zones/{id}` - Zone CRUD
+- `PUT /zones/{id}/rooms` - Assign rooms to a zone
+- `PUT/DELETE /zones/{id}/streams/{type}` - Toggle Spotify/AirPlay for a zone
+- `POST /test/channel` - Test amplifier channel (chime/TTS)
+- `POST /test/room` - Test room (left/right/stereo)
+- `POST /deploy` - Deploy configuration
+- `GET /system/powermanager` - Relay state and audio activity
+- `POST /system/relay` - Control amplifier power
+- `GET /snapcast/status` - Snapcast server status
 
 ## Configuration File (v2.0)
 
@@ -217,9 +287,11 @@ Real audio playback shows:
 
 The powermanager detects stale streams by checking:
 1. Owner process must be alive (`kill -0 $pid`) - dead process = orphaned stream
-2. `appl_ptr` must be non-zero - zero means app never wrote to current position (catches PID-recycled streams)
-3. `avail_max` must be < 100M samples (~35 min at 48kHz) - higher = stale too long
+2. Process must have ALSA device open in `/proc/<pid>/fd/` - catches PID recycling
+3. `avail_max` must be < 500K samples (~10 sec at 48kHz) - higher = stale
 
-**PID recycling issue**: When a process dies but its PID gets reused by another process (e.g., sendspin dies, snapclient gets same PID), the `kill -0` check passes incorrectly. The `appl_ptr=0` check catches this - orphaned streams have appl_ptr stuck at 0 while hw_ptr grows.
+Active streams have `avail_max` bounded by buffer size (~8K-64K). Stale streams (e.g., sendspin connected but no audio flowing) have `avail_max` growing unboundedly at sample rate.
+
+Note: Some audio clients (like sendspin via PortAudio) keep `appl_ptr=0` during normal playback, so we cannot use appl_ptr to detect stale streams.
 
 At startup, the powermanager immediately syncs relay state to current activity. A 5-second cooldown after turning the relay off prevents false re-activation from USB amp power-cycle resetting ALSA state.
