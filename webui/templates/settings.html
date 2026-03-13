@@ -30,18 +30,10 @@
     </div>
 
     <div class="button-group" style="margin-top: 1rem;">
-        <button class="btn btn-success"
-                hx-post="/api/system/relay"
-                hx-vals='{"state": "on"}'
-                hx-swap="none"
-                hx-on::after-request="showToast(event.detail.successful ? 'Amplifiers turned on' : 'Error', !event.detail.successful); loadPowermanagerStatus();">
+        <button class="btn btn-success" onclick="setRelay('on')">
             Amplifiers ON
         </button>
-        <button class="btn btn-danger"
-                hx-post="/api/system/relay"
-                hx-vals='{"state": "off"}'
-                hx-swap="none"
-                hx-on::after-request="showToast(event.detail.successful ? 'Amplifiers turned off' : 'Error', !event.detail.successful); loadPowermanagerStatus();">
+        <button class="btn btn-danger" onclick="setRelay('off')">
             Amplifiers OFF
         </button>
         <button class="btn" onclick="loadPowermanagerStatus()">
@@ -90,6 +82,24 @@
 </div>
 
 <script>
+async function setRelay(state) {
+    try {
+        const response = await fetch('/api/system/relay', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({state: state})
+        });
+        if (response.ok) {
+            showToast(state === 'on' ? 'Amplifiers turned on' : 'Amplifiers turned off');
+        } else {
+            showToast('Error', true);
+        }
+        loadPowermanagerStatus();
+    } catch (e) {
+        showToast('Connection error', true);
+    }
+}
+
 async function updateMaxVolume(input) {
     const value = parseInt(input.value) / 100;
     document.getElementById('max-volume-value').textContent = input.value + '%';

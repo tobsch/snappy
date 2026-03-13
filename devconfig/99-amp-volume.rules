@@ -1,0 +1,4 @@
+# Restore ALSA mixer settings when Wondom GAB8 amps reconnect
+ACTION=="add", SUBSYSTEM=="sound", ATTR{id}=="amp1", RUN+="/usr/sbin/alsactl restore amp1"
+ACTION=="add", SUBSYSTEM=="sound", ATTR{id}=="amp2", RUN+="/usr/sbin/alsactl restore amp2"
+ACTION=="add", SUBSYSTEM=="sound", ATTR{id}=="amp3", RUN+="/usr/sbin/alsactl restore amp3"

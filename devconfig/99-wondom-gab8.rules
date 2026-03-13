@@ -6,15 +6,15 @@
 #
 # IMPORTANT: Label your physical USB ports and always plug each amp
 # into the same port. The paths below correspond to:
-#   amp1 = USB controller 0, port 2 (direct)
-#   amp2 = USB controller 1, port 2 (direct)
-#   amp3 = USB controller 1, port 1.4 (via hub)
+#   amp1 = USB controller 0, port 1 (via hub)
+#   amp2 = USB controller 1, port 1.1 (via hub)
+#   amp3 = USB controller 1, port 1.3 (via hub)
 
-# GAB8 on USB controller 0, port 2 -> amp1
-SUBSYSTEM=="sound", ATTR{id}=="GAB8*", ENV{ID_PATH}=="platform-xhci-hcd.0-usb-0:2:1.1", ATTR{id}="amp1"
+# GAB8 on USB controller 0, port 1 (hub) -> amp1
+SUBSYSTEM=="sound", ATTR{id}=="GAB8*", ENV{ID_PATH}=="platform-xhci-hcd.0-usb-0:1:1.1", ATTR{id}="amp1"
 
-# GAB8 on USB controller 1, port 2 -> amp2
-SUBSYSTEM=="sound", ATTR{id}=="GAB8*", ENV{ID_PATH}=="platform-xhci-hcd.1-usb-0:2:1.1", ATTR{id}="amp2"
+# GAB8 on USB controller 1, port 1.1 (hub) -> amp2
+SUBSYSTEM=="sound", ATTR{id}=="GAB8*", ENV{ID_PATH}=="platform-xhci-hcd.1-usb-0:1.1:1.1", ATTR{id}="amp2"
 
-# GAB8 on USB controller 1, port 1.4 (hub) -> amp3
-SUBSYSTEM=="sound", ATTR{id}=="GAB8*", ENV{ID_PATH}=="platform-xhci-hcd.1-usb-0:1.4:1.1", ATTR{id}="amp3"
+# GAB8 on USB controller 1, port 1.3 (hub) -> amp3
+SUBSYSTEM=="sound", ATTR{id}=="GAB8*", ENV{ID_PATH}=="platform-xhci-hcd.1-usb-0:1.3:1.1", ATTR{id}="amp3"

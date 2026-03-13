@@ -531,9 +531,15 @@ async def get_powermanager_status(request: Request):
                     )
                     pid_stdout, _ = await pid_check.communicate()
                     if pid_check.returncode == 0:
-                        # Process exists - stream is active
-                        result["active_cards"].append(card)
-                        result["audio_active"] = True
+                        # Process exists - check avail_max for stale streams
+                        # Active streams have avail_max bounded by buffer (~64K)
+                        # Stale streams have avail_max growing unboundedly
+                        avail_match = re.search(r'avail_max\s*:\s*(\d+)', status)
+                        if avail_match:
+                            avail_max = int(avail_match.group(1))
+                            if avail_max < 500000:  # ~10 sec at 48kHz
+                                result["active_cards"].append(card)
+                                result["audio_active"] = True
         except Exception:
             pass
 

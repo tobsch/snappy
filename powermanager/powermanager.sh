@@ -11,11 +11,13 @@ RELAY_OFF_CMD="crelay 1 on"
 SLEEP_INTERVAL=0.1
 
 # Idle timeout in seconds before turning off
-IDLE_TIMEOUT=60
+# Set high because sendspin keeps ALSA streams RUNNING even when idle
+IDLE_TIMEOUT=600
 
 # Cooldown period after turning relay off (seconds)
 # Prevents false re-activation when USB amp power-cycles reset ALSA state
-RELAY_OFF_COOLDOWN=5
+# USB amps take ~20-30 seconds to fully reset and clients to reconnect
+RELAY_OFF_COOLDOWN=45
 
 relay_on=false
 last_active_ts=0
@@ -25,36 +27,100 @@ log() {
   echo "[powermanager] $(date '+%Y-%m-%d %H:%M:%S') $*"
 }
 
-is_any_card_active() {
-  local status content owner_pid avail_max
+# Check if any Snapcast stream is playing
+is_snapcast_playing() {
+  # Query Snapcast JSON-RPC API for stream status
+  local response
+  response=$(curl -s --max-time 1 -X POST -H "Content-Type: application/json" \
+    -d '{"id":1,"jsonrpc":"2.0","method":"Server.GetStatus"}' \
+    http://localhost:1705 2>/dev/null) || return 1
+
+  # Check if any stream has status "playing"
+  echo "$response" | grep -q '"status":"playing"'
+}
+
+# Check if any sendspin client is receiving audio
+# Sendspin bypasses Snapcast, so we need to check ALSA activity from sendspin processes
+# Note: sendspin's avail_max grows unboundedly even during playback (PortAudio quirk),
+# so we can't use the avail_max threshold. Just check if sendspin owns a RUNNING stream.
+is_sendspin_active() {
+  local card status content owner_pid proc_name
   for card in "${CARDS[@]}"; do
     for status_file in /proc/asound/${card}/pcm*/sub*/status; do
       [ -e "$status_file" ] || continue
-      # Quick check: read first line only - "closed" or "state: RUNNING"
       read -r status < "$status_file" 2>/dev/null || continue
       [[ "$status" == "state: RUNNING" ]] || continue
 
-      # Stream is running - read full status once for all checks
+      content=$(cat "$status_file" 2>/dev/null) || continue
+      owner_pid=$(awk '/owner_pid/{print $3}' <<< "$content")
+      [[ -n "$owner_pid" ]] || continue
+
+      # Check if it's a sendspin process
+      proc_name=$(cat "/proc/$owner_pid/comm" 2>/dev/null) || continue
+      [[ "$proc_name" == "sendspin" ]] || continue
+
+      # Sendspin owns a RUNNING stream - consider active
+      return 0
+    done
+  done
+  return 1
+}
+
+# Check if a process actually has an ALSA device open
+# This catches PID recycling: process alive but doesn't own the stream
+process_has_alsa_open() {
+  local pid=$1 card=$2
+  local card_num
+  # Get card number from /proc/asound/card symlink
+  card_num=$(readlink "/proc/asound/$card" 2>/dev/null | grep -o '[0-9]*')
+  [[ -z "$card_num" ]] && return 1
+  # Check if process has /dev/snd/pcm* for this card open
+  ls -l "/proc/$pid/fd" 2>/dev/null | grep -q "/dev/snd/pcmC${card_num}"
+}
+
+# Store previous hw_ptr values to detect movement
+declare -A prev_hw_ptr
+
+is_any_card_active() {
+  local status content owner_pid hw_ptr card key
+  local found_active=false
+
+  for card in "${CARDS[@]}"; do
+    for status_file in /proc/asound/${card}/pcm*/sub*/status; do
+      [ -e "$status_file" ] || continue
+      read -r status < "$status_file" 2>/dev/null || continue
+      [[ "$status" == "state: RUNNING" ]] || continue
+
       content=$(cat "$status_file" 2>/dev/null) || continue
       owner_pid=$(awk '/owner_pid/{print $3}' <<< "$content")
 
       # Check if owner process is alive
       [[ -n "$owner_pid" ]] && kill -0 "$owner_pid" 2>/dev/null || continue
 
-      # Check for orphaned streams: appl_ptr=0 means app never wrote to current position
-      # This catches PID-recycled cases where a different process now has the same PID
-      appl_ptr=$(awk '/appl_ptr/{print $3}' <<< "$content")
-      [[ "$appl_ptr" == "0" ]] && continue
+      # Verify process actually has this ALSA device open
+      process_has_alsa_open "$owner_pid" "$card" || continue
 
-      # Check avail_max for stale streams
-      # Truly stale streams (hours) reach hundreds of millions or billions
-      # Threshold of 100M (~35 min at 48kHz) allows normal playback
-      avail_max=$(awk '/avail_max/{print $3}' <<< "$content")
-      if [[ -z "$avail_max" ]] || (( avail_max < 100000000 )); then
-        return 0  # Active or recently active
+      # Get current hw_ptr
+      hw_ptr=$(awk '/hw_ptr/{print $3}' <<< "$content")
+      [[ -n "$hw_ptr" ]] || continue
+
+      key="${card}_${status_file}"
+
+      # Compare with previous hw_ptr - if changed, audio is flowing
+      if [[ -n "${prev_hw_ptr[$key]}" ]] && [[ "$hw_ptr" != "${prev_hw_ptr[$key]}" ]]; then
+        found_active=true
       fi
+
+      # Store current hw_ptr for next check
+      prev_hw_ptr[$key]="$hw_ptr"
     done
   done
+
+  $found_active && return 0
+
+  # Fallback: check Snapcast (works reliably)
+  is_snapcast_playing && return 0
+
   return 1
 }
 

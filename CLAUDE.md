@@ -4,25 +4,96 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Multiroom Audio Tooling - identifies and configures speakers connected to multi-channel USB audio amplifiers and generates ALSA and Snapcast configuration for multiroom audio playback. Originally built for Wondom GAB8 amplifiers but works with any multi-channel USB audio device.
+Multiroom Audio Tooling - provides the **ALSA configuration layer** for multi-channel USB audio amplifiers. This tooling identifies speakers, maps them to rooms, and generates ALSA PCM devices that audio servers can use for playback.
+
+**Primary use case**: Configuration layer for [lox-audioserver](https://github.com/lox-audioserver/lox-audioserver), which handles multiroom audio streaming, Spotify/AirPlay integration, and Loxone home automation. The sendspin clients connect to lox-audioserver and play audio through the ALSA devices configured by this tooling.
+
+**Legacy/Optional**: Snapcast support is retained for standalone multiroom setups without Loxone integration.
+
+Originally built for Wondom GAB8 amplifiers but works with any multi-channel USB audio device.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         Loxone Miniserver                           │
+│                    (Home automation control)                        │
+└─────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                        lox-audioserver                              │
+│              (Docker container on this machine)                     │
+│  - Bridges Loxone ↔ Audio                                           │
+│  - Spotify Connect, AirPlay, TuneIn                                 │
+│  - Zone/room management                                             │
+│  - Relay control for amplifier power (via crelay)                   │
+│  - Sendspin server (ws://localhost:7090/sendspin)                   │
+└─────────────────────────────────────────────────────────────────────┘
+                                   │
+                    WebSocket connections
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    sendspin clients (per room)                      │
+│         sendspin@room_kitchen, sendspin@room_living, etc.           │
+│              Receives audio stream, plays to ALSA device            │
+└─────────────────────────────────────────────────────────────────────┘
+                                   │
+                          ALSA PCM devices
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│              ALSA Configuration (this tooling provides)             │
+│  - room_<name> devices (stereo, routed to correct amp channels)     │
+│  - Per-speaker volume control via ttable                            │
+│  - Cross-device stereo pairs supported                              │
+└─────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                   USB Audio Amplifiers                              │
+│               (Wondom GAB8 or similar, amp1/amp2/amp3)              │
+│                    Directly connected speakers                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### What This Tooling Provides
+
+1. **Speaker identification** (`speaker_identify.py`) - Interactive CLI to map amplifier channels to rooms
+2. **ALSA configuration** (`generate_alsa_config.py`) - Generates `/etc/asound.conf` with room PCM devices
+3. **Sendspin service templates** (`services/sendspin@.service`) - Systemd services for each room
+4. **Web UI** (`webui/`) - Browser interface for testing speakers and managing configuration
+5. **udev rules** (`devconfig/`) - Persistent naming for USB amplifiers
+
+### What lox-audioserver Provides
+
+- Multiroom audio streaming (Spotify, AirPlay, TuneIn, line-in)
+- Loxone home automation integration
+- Zone and group management
+- Volume control per zone
+- Relay control for amplifier power (replaces powermanager)
+- Web admin interface at http://localhost:7090
 
 ## Directory Structure
 
 ```
 ├── speaker_identify.py      # Interactive speaker identification via TTS
 ├── generate_alsa_config.py  # Generates ALSA PCM configuration
-├── generate_snapserver_conf.py  # Generates Snapcast server config
-├── deploy_config.py         # One-shot deployment (ALSA + Snapcast + API config)
 ├── speaker_config.json      # Speaker/room/zone configuration (v2.0)
 ├── devconfig/
-│   ├── 99-wondom-gab8.rules # Example udev rules for persistent amp naming
+│   ├── 99-wondom-gab8.rules # udev rules for persistent amp naming
+│   ├── 99-amp-volume.rules  # udev rules to restore ALSA mixer on reconnect
 │   └── 99-fernseher.rules   # udev rules for TV audio input
 ├── services/
-│   ├── snapclient@.service  # Systemd template for per-room snapclients (local)
-│   └── sendspin@.service    # Systemd template for per-room sendspin clients (remote)
-├── powermanager/
+│   ├── sendspin@.service    # Systemd template for sendspin clients (PRIMARY)
+│   └── snapclient@.service  # Systemd template for snapclients (LEGACY)
+├── powermanager/            # LEGACY - being replaced by lox-audioserver
 │   ├── powermanager.sh      # Auto relay control based on ALSA activity
 │   └── powermanager.service # Systemd service for power manager
+├── lox-audioserver/         # Docker setup (not in git, local only)
+│   ├── compose.yaml         # Docker compose for lox-audioserver
+│   └── data/                # lox-audioserver configuration and data
 └── webui/
     ├── app.py               # FastAPI application entry point
     ├── requirements.txt     # Python dependencies
@@ -33,265 +104,223 @@ Multiroom Audio Tooling - identifies and configures speakers connected to multi-
     ├── services/
     │   ├── config.py        # Configuration file CRUD operations
     │   ├── audio.py         # TTS and chime playback
-    │   └── snapcast.py      # Snapcast JSON-RPC client
+    │   └── snapcast.py      # Snapcast JSON-RPC client (legacy)
     ├── templates/           # Jinja2 HTML templates
     └── static/
         ├── css/style.css    # Styling
         ├── js/app.js        # Toast notifications
         └── sounds/          # Test chime sound
+
+# Legacy (Snapcast-based, optional)
+├── generate_snapserver_conf.py  # Generates Snapcast server config
+└── deploy_config.py             # One-shot deployment for Snapcast setup
 ```
 
-## Commands
+## Quick Start (lox-audioserver Setup)
+
+### 1. Configure ALSA devices
 
 ```bash
-# Identify speakers interactively (plays TTS announcements, prompts for room/position/zones)
+# Identify speakers (plays TTS on each channel, prompts for room assignment)
 python3 speaker_identify.py
-python3 speaker_identify.py --all        # Re-announce all channels including mapped ones
 
-# Generate ALSA configuration from speaker_config.json
-python3 generate_alsa_config.py > asound.conf
-
-# Generate Snapcast server configuration
-python3 generate_snapserver_conf.py > snapserver.conf
-
-# Deploy everything in one go (ALSA config, Snapcast config, restart, configure groups)
-python3 deploy_config.py
-
-# Test playback to a room
-aplay -D room_<roomname> test.wav
-
-# Test playback to all rooms
-aplay -D all_rooms test.wav
-
-# Start web interface (development)
-cd webui && ./venv/bin/uvicorn app:app --host 0.0.0.0 --port 8080 --reload
-
-# Start web interface (production via systemd)
-sudo systemctl start webui
+# Generate and install ALSA config
+python3 generate_alsa_config.py | sudo tee /etc/asound.conf
 ```
 
-## Web Interface
-
-The web UI provides a browser-based interface for managing the multiroom audio system. Built with FastAPI + HTMX + Jinja2.
-
-### Running the Web UI
+### 2. Start lox-audioserver
 
 ```bash
-# First time setup
-cd webui
-python3 -m venv venv
-./venv/bin/pip install -r requirements.txt
+cd ~/lox-audioserver
+sudo docker compose up -d
 
-# Development (with auto-reload)
-./venv/bin/uvicorn app:app --host 0.0.0.0 --port 8080 --reload
-
-# Production (systemd)
-sudo cp webui/webui.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now webui
+# Access admin UI at http://localhost:7090
 ```
 
-Access at `http://<hostname>:8080`
+### 3. Enable sendspin services
 
-### Features
+```bash
+# Install service template
+sudo cp services/sendspin@.service /etc/systemd/system/
+sudo systemctl daemon-reload
 
-- **Dashboard** - Overview of rooms, zones, streams, amplifiers with quick test buttons
-- **Amplifiers** - View all amplifier channels, see room assignments, test individual channels (chime or TTS)
-- **Rooms** - Manage rooms, adjust per-speaker volume, test left/right/stereo
-- **Zones & Streams** - Create/delete zones, assign rooms to zones, toggle Spotify/AirPlay per zone
-- **Playback** - View Snapcast status (streams, groups, connected clients)
-- **Settings** - Global volume limit, amplifier power control (relay), deploy configuration, service status
+# Enable for each room
+sudo systemctl enable --now sendspin@room_kitchen sendspin@room_living ...
+```
 
-### API Endpoints
+### 4. Test playback
 
-Key REST API endpoints (all under `/api/`):
+```bash
+# Direct ALSA test
+aplay -D room_kitchen test.wav
 
-- `GET /config` - Full configuration
-- `GET/POST/PUT/DELETE /config/rooms/{id}` - Room CRUD
-- `GET/POST/PUT/DELETE /config/zones/{id}` - Zone CRUD
-- `PUT /zones/{id}/rooms` - Assign rooms to a zone
-- `PUT/DELETE /zones/{id}/streams/{type}` - Toggle Spotify/AirPlay for a zone
-- `POST /test/channel` - Test amplifier channel (chime/TTS)
-- `POST /test/room` - Test room (left/right/stereo)
-- `POST /deploy` - Deploy configuration
-- `GET /system/powermanager` - Relay state and audio activity
-- `POST /system/relay` - Control amplifier power
-- `GET /snapcast/status` - Snapcast server status
+# Or trigger playback via Loxone / lox-audioserver web UI
+```
+
+## lox-audioserver Configuration
+
+The lox-audioserver runs as a Docker container with:
+
+```yaml
+# ~/lox-audioserver/compose.yaml
+services:
+  loxoneaudioserver:
+    container_name: lox-audioserver
+    image: ghcr.io/lox-audioserver/lox-audioserver:beta-latest
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - SYS_ADMIN
+      - DAC_READ_SEARCH
+      - SYS_NICE
+    security_opt:
+      - apparmor=unconfined
+    volumes:
+      - ./data:/app/data
+    devices:
+      - /dev/hidraw0:/dev/hidraw0
+      - /dev/hidraw1:/dev/hidraw1
+      - /dev/hidraw2:/dev/hidraw2
+      - /dev/hidraw3:/dev/hidraw3
+      - /dev/bus/usb:/dev/bus/usb  # For crelay USB relay control
+```
+
+Key ports (all on host network):
+- **7090** - Admin web UI and sendspin WebSocket server
+- **1704** - Built-in Snapcast-compatible streaming (conflicts with standalone snapserver)
+
+### Relay Control
+
+lox-audioserver has crelay built-in for amplifier power control. The USB relay device is passed through to the container. Configure relay behavior in the lox-audioserver web UI.
+
+Note: The relay uses inverted logic (NC wiring) - relay ON = amplifiers OFF. Consider rewiring to NO terminals for intuitive control.
 
 ## Configuration File (v2.0)
 
-The config file is stored at `speaker_config.json` (in this tool directory).
-
-### Structure
+The config file `speaker_config.json` defines the ALSA layer:
 
 ```json
 {
   "version": "2.0",
   "global": { "max_volume": 0.25 },
   "amplifiers": { "amp1": { "card": "amp1", "channels": 8 } },
-  "inputs": { "fernseher": { "card": "fernseher", "channels": 1, "sampleformat": "48000:16:1", "name": "Fernseher" } },
-  "speakers": { "room_left": { "amplifier": "amp1", "channel": 3, "volume": 100, "latency": 0 } },
-  "rooms": { "room": { "name": "Room", "left": "room_left", "right": "room_right", "zones": ["zone1"] } },
-  "zones": { "zone1": { "name": "Zone 1" }, "alle": { "name": "All", "include_all": true } },
-  "snapcast": {
-    "server": "localhost",
-    "streams": {
-      "spotify": { "type": "librespot", "name": "Spotify", "bitrate": 320 },
-      "fernseher": { "type": "alsa", "input": "fernseher" }
-    },
-    "stream_targets": { "spotify": { "zones": ["alle"] } }
-  }
+  "speakers": {
+    "kitchen_left": { "amplifier": "amp1", "channel": 3, "volume": 100 },
+    "kitchen_right": { "amplifier": "amp1", "channel": 4, "volume": 100 }
+  },
+  "rooms": {
+    "kitchen": { "name": "Kitchen", "left": "kitchen_left", "right": "kitchen_right" }
+  },
+  "zones": { ... }  // Used by legacy Snapcast setup
 }
 ```
 
-### Global Settings
+The zones and Snapcast-related config are ignored when using lox-audioserver (zones are managed in lox-audioserver instead).
 
-- `max_volume`: ALSA ttable coefficient (0.0-1.0) that limits maximum output volume. Default is 0.25 (25%, -12dB). Higher values = louder max volume.
+## Web Interface
 
-### Inputs
+The web UI at http://localhost:8080 provides:
 
-Audio inputs (capture devices) for use as Snapcast stream sources:
-- `card`: ALSA card name (should match udev-assigned name)
-- `channels`: Number of input channels (1 for mono, 2 for stereo)
-- `sampleformat`: Capture format (e.g., "48000:16:1" for 48kHz 16-bit mono)
-- `name`: Display name in Snapcast
+- **Dashboard** - Overview of rooms and amplifiers
+- **Amplifiers** - Test individual channels (chime or TTS)
+- **Rooms** - Test left/right/stereo, adjust per-speaker volume
+- **Settings** - Relay control, service status, deploy configuration
 
-Reference inputs in streams with `"type": "alsa", "input": "input_id"`.
+Note: Playback and Zones pages are Snapcast-specific (legacy).
 
-## Architecture
+## Commands
 
-Three-stage workflow:
-1. **speaker_identify.py** - Interactive CLI that plays TTS announcements (via espeak-ng) on each amplifier channel, prompts user for room name, left/right position, and zone assignments. Saves mappings to `speaker_config.json`. Progress is saved incrementally and can be resumed.
-2. **generate_alsa_config.py** - Reads config, outputs ALSA config with base amplifier PCMs (`amp1`, `amp2`, etc.), room PCMs (`room_<name>`), and combined `all_rooms` device. Zones are handled by Snapcast, not ALSA.
-3. **generate_snapserver_conf.py** - Reads config, outputs Snapcast server configuration with multiple stream sources (Spotify, AirPlay, pipe, etc.)
+```bash
+# Speaker identification
+python3 speaker_identify.py
+python3 speaker_identify.py --all  # Re-announce all channels
 
-### Services
+# Generate ALSA config
+python3 generate_alsa_config.py > asound.conf
+sudo cp asound.conf /etc/asound.conf
 
-- **services/snapclient@.service** - Systemd template service for Snapcast clients connecting to the **local** snapserver. Instance name (`%i`) is the room ALSA device (e.g., `snapclient@room_kitchen.service`). Each room gets its own snapclient instance. Connects to `localhost:1704`.
+# Test room playback
+aplay -D room_kitchen test.wav
 
-- **services/sendspin@.service** - Systemd template service for Sendspin clients connecting to the **remote** Lox audioserver. Instance name (`%i`) is the room ALSA device (e.g., `sendspin@room_kitchen.service`). Each room gets its own sendspin instance. Connects to `ws://192.168.0.235:7090/sendspin`.
+# Sendspin management
+sudo systemctl status 'sendspin@*'
+journalctl -u 'sendspin@room_kitchen' -f
 
-Both services run in parallel for each room, allowing audio from either the local snapserver or the remote Lox audioserver.
+# lox-audioserver management
+sudo docker logs lox-audioserver -f
+sudo docker restart lox-audioserver
 
-- **powermanager/** - Automatic amplifier power control via USB relay:
-  - Monitors ALSA card activity by checking `/proc/asound/cardX/pcm*/sub*/status`
-  - Turns relay ON immediately when audio starts playing
-  - Turns relay OFF after configurable idle timeout (default: 5 minutes)
-  - Requires `crelay` tool for USB relay control
+# Relay control (from host)
+crelay -i          # Show relay status
+crelay 1 on        # Relay on (amps OFF with NC wiring)
+crelay 1 off       # Relay off (amps ON with NC wiring)
+```
 
-### deploy_config.py
+## Key Design Considerations
 
-One-shot deployment script that:
-1. Generates and installs ALSA config to `/etc/asound.conf`
-2. Generates and installs Snapcast config to `/etc/snapserver.conf`
-3. Installs service templates (snapclient@.service, sendspin@.service)
-4. Restarts snapserver
-5. Enables and restarts snapclient and sendspin services for all rooms
-6. Waits for snapclients to connect (30s timeout)
-7. Configures Snapcast groups via JSON-RPC API (port 1705)
-
-The script uses `stream_targets` from `speaker_config.json` to assign rooms to streams based on zone membership. Requires sudo access.
-
-### Key Design Considerations
-
-- Supports cross-device stereo pairs (left speaker on amp1, right on amp2) using ALSA multi plugin
-- Channel indices: 1-based in config JSON, converted to 0-based for ALSA ttable
-- **Persistent device naming**: Example udev rules in `devconfig/` show how to rename USB audio devices to `amp1`/`amp2`/`amp3` based on USB port path. Users must adapt these for their specific devices. The names are bound to USB ports, not physical units - label your cables/ports.
-- **ALSA device naming to avoid prefix collisions**: Cross-device rooms create individual speaker devices named `speaker_{room}_left` and `speaker_{room}_right` (not `room_{room}_left`) to avoid prefix-matching issues with sendspin. Sendspin uses `startswith()` for device matching, so `room_esszimmer` would incorrectly match `room_esszimmer_left`. Using `speaker_` prefix prevents this.
-- Rooms can belong to multiple zones (tag-based, not hierarchical)
-- Multiple Spotify/AirPlay streams supported (each appears as separate device)
-- TTS announcements require pre-configured per-channel ALSA devices (`amp1_ch1` through `amp*_ch8`)
+- **ALSA device naming**: Room devices use `room_<name>` prefix. Cross-device stereo pairs use `speaker_<room>_left/right` to avoid sendspin's prefix matching issues.
+- **Persistent device naming**: udev rules in `devconfig/` rename USB amps to `amp1`/`amp2`/`amp3` based on USB port path.
+- **ALSA mixer persistence**: udev rule `99-amp-volume.rules` restores mixer levels when amps reconnect after power cycle.
+- **Volume control**: `max_volume` in config limits ALSA ttable coefficient. Per-speaker volume is percentage of max.
+- **Cross-device stereo**: Left speaker on amp1, right on amp2 - handled by ALSA multi plugin.
 
 ## Prerequisites
 
 - Python 3
-- ALSA utilities (`aplay`, `speaker-test`)
+- ALSA utilities (`aplay`, `speaker-test`, `amixer`, `alsactl`)
 - `espeak-ng` for TTS during speaker identification
-- Multi-channel USB audio amplifiers with per-channel ALSA routing pre-configured
-- Snapcast server and client (`snapserver`, `snapclient`) for multiroom streaming
-- `sendspin` for Lox audioserver integration (`pip install sendspin` + `apt install libportaudio2`)
-- Optional: `librespot` for Spotify Connect
-- Optional: `shairport-sync` compiled from source with `--with-airplay-2` for AirPlay 2 support
-- Optional: `crelay` for automatic amplifier power management via USB relay
+- Multi-channel USB audio amplifiers
+- Docker for lox-audioserver
+- `sendspin` (`pip install --user --break-system-packages sendspin`)
+- `libportaudio2` for sendspin audio output
+- `crelay` for USB relay control (optional, can use lox-audioserver's built-in)
 
 ## Troubleshooting
 
-### No audio playing / audio too quiet
-1. **Check if amplifiers are powered on** - The powermanager controls a USB relay that powers the amplifiers. If the relay is off, no audio will play even if everything else is working. Check with `crelay` or look at relay status.
-2. **Check amplifier mixer levels** - Each amp has its own PCM volume: `amixer -c amp1 sget PCM`. Set to 100% with `amixer -c amp1 sset PCM 100%` and save with `sudo alsactl store`.
-3. Check snapclient logs: `journalctl -u 'snapclient@room_*' -f`
-4. Test direct ALSA playback: `speaker-test -D room_<name>_raw -c 2 -t sine`
-5. Check Snapcast group assignments and stream status
+### No audio playing
 
-### Snapclient configuration
-The snapclient service uses `--sampleformat 48000:16:*` because:
-- Many USB amplifiers (including Wondom GAB8) operate at 48kHz
-- Spotify streams at 44.1kHz and needs resampling to 48kHz
-- The `*` for channels is required by snapclient (must match source)
+1. Check sendspin connection: `journalctl -u 'sendspin@room_*' -f`
+2. Check lox-audioserver: `sudo docker logs lox-audioserver`
+3. Test direct ALSA: `speaker-test -D room_kitchen -c 2 -t sine`
+4. Check ALSA mixer levels: `amixer -c amp1 sget PCM` (should be 100%)
+5. Check relay/amplifier power: `crelay -i`
 
-Do NOT add `buffer_time` parameter - it's interpreted as milliseconds and causes massive buffer issues (e.g., `buffer_time=80000` = 80 seconds, not 80ms).
+### Sendspin connection errors
 
-### Librespot cache corruption
-If Spotify streams show "playing" status but snapclients report "No chunks available" or you see these errors in `journalctl -u snapserver`:
 ```
-(librespot_core::audio_key) Audio key response timeout
-(librespot_playback::player) Unable to load key, continuing without decryption
-(librespot_playback::player) Unable to read audio file: Symphonia Decoder Error: end of stream
+WARNING:sendspin.daemon.daemon:Connection error (ClientConnectorError)
 ```
 
-The librespot cache is likely corrupted. Fix by clearing the cache for the affected stream:
+- Verify lox-audioserver is running: `sudo docker ps | grep lox`
+- Check port 7090 is listening: `ss -tlnp | grep 7090`
+- Restart lox-audioserver: `sudo docker restart lox-audioserver`
+
+### ALSA mixer resets after power cycle
+
+The udev rule `99-amp-volume.rules` should restore settings. Verify:
 ```bash
-# For spotify_wohnen stream:
-sudo rm -rf /var/cache/snapserver/librespot-spotify_wohnen/*
+# Check rule is installed
+cat /etc/udev/rules.d/99-amp-volume.rules
 
-# For spotify_kueche stream:
-sudo rm -rf /var/cache/snapserver/librespot-spotify_kueche/*
-
-# Then restart snapserver
-sudo systemctl restart snapserver
+# Manually restore
+sudo alsactl restore amp1
 ```
 
-After restart, you'll need to re-select the Spotify device in your Spotify app and reassign stream targets (run `deploy_config.py` or use the JSON-RPC API).
+## Legacy: Snapcast Setup
 
-### Sendspin issues
-Check sendspin logs: `journalctl -u 'sendspin@room_*' -f`
-
-If sendspin fails to start with "PortAudio library not found":
-```bash
-sudo apt-get install libportaudio2
-```
-
-If sendspin can't connect to the Lox audioserver:
-1. Verify the server is reachable: `nc -zv 192.168.0.235 7090`
-2. Check the WebSocket URL in `services/sendspin@.service`
-3. Restart the service: `sudo systemctl restart sendspin@room_<name>.service`
-
-**Sendspin device matching**: Sendspin uses prefix matching (`startswith()`) for audio device selection. This is why cross-device speaker devices use `speaker_` prefix instead of `room_` - to avoid `room_esszimmer` matching `room_esszimmer_left`. With correct ALSA naming, parallel startup works reliably.
-
-### Powermanager not turning off amps
-
-If amplifiers stay powered on even when no audio is playing, check for stale ALSA streams:
+For standalone multiroom without Loxone, Snapcast can still be used:
 
 ```bash
-cat /proc/asound/amp1/pcm0p/sub0/status
+# Generate Snapcast config
+python3 generate_snapserver_conf.py > snapserver.conf
+sudo cp snapserver.conf /etc/snapserver.conf
+
+# Enable services (uses port 1714 to avoid lox-audioserver conflict)
+sudo systemctl enable --now snapserver
+sudo systemctl enable --now snapclient@room_kitchen ...
+
+# Re-enable with:
+sudo systemctl enable --now snapserver 'snapclient@room_*'
 ```
 
-A stale stream (e.g., from sendspin keeping the device open after audio ends) shows:
-- `state: RUNNING` but no actual audio
-- `avail_max` in the millions (e.g., 138,000,000+)
-- `delay` massively negative (e.g., -138,000,000)
-
-Real audio playback shows:
-- `avail_max` around 40,000-65,000 (normal buffer size)
-- `delay` small or moderately negative
-
-The powermanager detects stale streams by checking:
-1. Owner process must be alive (`kill -0 $pid`) - dead process = orphaned stream
-2. Process must have ALSA device open in `/proc/<pid>/fd/` - catches PID recycling
-3. `avail_max` must be < 500K samples (~10 sec at 48kHz) - higher = stale
-
-Active streams have `avail_max` bounded by buffer size (~8K-64K). Stale streams (e.g., sendspin connected but no audio flowing) have `avail_max` growing unboundedly at sample rate.
-
-Note: Some audio clients (like sendspin via PortAudio) keep `appl_ptr=0` during normal playback, so we cannot use appl_ptr to detect stale streams.
-
-At startup, the powermanager immediately syncs relay state to current activity. A 5-second cooldown after turning the relay off prevents false re-activation from USB amp power-cycle resetting ALSA state.
+Note: If running alongside lox-audioserver, snapserver uses port 1714 (configured in `/etc/snapserver.conf` under `[stream]` section).
