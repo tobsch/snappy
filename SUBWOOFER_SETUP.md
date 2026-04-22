@@ -1,58 +1,62 @@
 # Subwoofer Setup — Wohnzimmer
 
-Dedicated subwoofer on a Raspberry Pi Nano (192.168.0.205), receiving audio via sendspin from lox-audioserver.
+Dedicated subwoofer on a Raspberry Pi Zero 2W (192.168.0.205, hostname `sub`), receiving audio via sendspin from lox-audioserver.
 
 ## Hardware
 
-- **Device**: Raspberry Pi Nano
+- **Device**: Raspberry Pi Zero 2W
+- **Hostname**: sub
 - **IP**: 192.168.0.205
-- **Audio output**: USB DAC or onboard audio → subwoofer amplifier
+- **DAC**: HiFiBerry DAC+ Zero (I2S via GPIO, PCM5102A)
+- **Audio output**: HiFiBerry → subwoofer amplifier
 - **Room**: Wohnzimmer
+- **SSH access**: `ssh tobias@192.168.0.205`
 
-## Setup on the RPi Nano (192.168.0.205)
+## Setup (completed)
 
-### 1. Install dependencies
+### 1. HiFiBerry DAC overlay
 
-```bash
-ssh pi@192.168.0.205
-
-sudo apt update
-sudo apt install -y libportaudio2 python3-pip alsa-utils
-pip install --user --break-system-packages sendspin aiosendspin
-```
-
-### 2. Identify the audio output device
-
-```bash
-# List available ALSA devices
-aplay -l
-
-# Test output (replace hw:0 with your device)
-speaker-test -D hw:0 -c 2 -t sine -f 80
-```
-
-Note the card/device name for the sendspin config (e.g., `hw:0`, `plughw:0`, or a named device).
-
-### 3. Create ALSA config for subwoofer filtering (optional)
-
-To only pass low frequencies to the subwoofer, create `/etc/asound.conf`:
+Added to `/boot/firmware/config.txt`:
 
 ```
-# Low-pass filter via ALSA LADSPA plugin (optional, requires swh-plugins)
-# If not using ALSA filtering, use lox-audioserver's DSP or just send full-range audio
+dtoverlay=hifiberry-dac
+```
+
+Reboot required after adding.
+
+### 2. ALSA configuration
+
+`/etc/asound.conf` on the RPi Zero:
+
+```
+pcm.!default {
+    type plug
+    slave.pcm "hw:sndrpihifiberry"
+}
+
+ctl.!default {
+    type hw
+    card sndrpihifiberry
+}
 
 pcm.subwoofer {
     type plug
-    slave.pcm "hw:0"
-    slave.channels 2
+    slave.pcm "hw:sndrpihifiberry"
 }
 ```
 
-If you want a proper low-pass filter, install `swh-plugins` and configure an LADSPA plugin chain. Alternatively, let the subwoofer amplifier handle crossover filtering.
+### 3. Dependencies
 
-### 4. Install sendspin service
+```bash
+sudo apt install -y libportaudio2 alsa-utils python3-pip
+pip install --user --break-system-packages sendspin aiosendspin
+```
 
-Create `/etc/systemd/system/sendspin-subwoofer.service`:
+Installed sendspin version: 7.0.0
+
+### 4. Sendspin service
+
+`/etc/systemd/system/sendspin-subwoofer.service`:
 
 ```ini
 [Unit]
@@ -62,11 +66,13 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/home/pi/.local/bin/sendspin daemon \
+User=tobias
+Environment=PYTHONPATH=/home/tobias/.local/lib/python3.13/site-packages
+ExecStart=/home/tobias/.local/bin/sendspin daemon \
     --url ws://192.168.0.203:7090/sendspin \
     --id subwoofer_wohnzimmer \
     --name subwoofer_wohnzimmer \
-    --audio-device subwoofer
+    --audio-device default
 Restart=always
 RestartSec=5
 
@@ -74,35 +80,33 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-Adjust:
-- `--url` — IP of the main audio server running lox-audioserver (192.168.0.203)
-- `--audio-device` — the ALSA device name from step 2/3
-- `--id` / `--name` — must be unique across all sendspin clients
+**Note**: Uses `--audio-device default` (not `subwoofer`) because PortAudio/sounddevice cannot open named ALSA devices. The ALSA config routes `default` to the HiFiBerry.
+
+**Note**: Requires `PYTHONPATH` because sendspin is installed with `--user` but systemd runs in a clean environment.
 
 ### 5. Enable and start
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now sendspin-subwoofer.service
-
-# Check status
 journalctl -u sendspin-subwoofer -f
 ```
 
-## Configure in lox-audioserver
+## lox-audioserver Integration
 
-The subwoofer sendspin client should appear in the lox-audioserver web UI (http://192.168.0.203:7090) once connected.
+**Status**: Pending — see [lox-audioserver#237](https://github.com/lox-audioserver/lox-audioserver/issues/237)
 
-1. Open the lox-audioserver admin UI
-2. Go to zone configuration for **Wohnzimmer**
-3. Add `subwoofer_wohnzimmer` as an additional output for the zone
-4. Set volume as needed (subwoofers typically need independent volume control)
+Each zone only supports a single sendspin output. The subwoofer needs either:
+- A dedicated zone linked to Wohnzimmer via groups
+- Multiple outputs per zone (not currently supported)
+
+The `subwoofer_wohnzimmer` client connects and is visible in lox-audioserver, but cannot be assigned to the Wohnzimmer zone alongside `room_wohnzimmer`.
 
 ## Testing
 
 ```bash
-# From the RPi Nano — test direct ALSA output
-speaker-test -D subwoofer -c 2 -t sine -f 60
+# From the RPi Zero — test direct ALSA output
+speaker-test -D default -c 2 -t sine -f 60
 
 # Check sendspin connection
 journalctl -u sendspin-subwoofer -n 20
@@ -110,14 +114,21 @@ journalctl -u sendspin-subwoofer -n 20
 # Should see:
 #   Connected to server 'Sendspin Server'
 #   Handshake with server complete
-#   Stream STARTED: ...
 ```
+
+## Troubleshooting
+
+### sendspin: "No module named 'sendspin'"
+The service needs `PYTHONPATH` set (see service file above). sendspin is installed in user-local site-packages.
+
+### sendspin: "No output device matching 'subwoofer'"
+PortAudio cannot see named ALSA devices. Use `--audio-device default` instead and configure the ALSA default to point to the HiFiBerry.
+
+### HiFiBerry not detected
+Check that `dtoverlay=hifiberry-dac` is in `/boot/firmware/config.txt` and reboot. Verify with `aplay -l` — should show `snd_rpi_hifiberry_dac`.
 
 ## Notes
 
-- The subwoofer receives the **full stereo mix** from lox-audioserver, same as the main speakers. Crossover filtering (low-pass) should be handled by either:
-  - The subwoofer amplifier's built-in crossover
-  - An ALSA LADSPA plugin chain on the RPi
-  - DSP settings in lox-audioserver (if supported)
+- The subwoofer receives the **full stereo mix** from lox-audioserver, same as the main speakers. Crossover filtering (low-pass) should be handled by the subwoofer amplifier's built-in crossover.
 - The subwoofer is on a separate network device, so it has independent latency. Adjust latency offset in lox-audioserver if needed to sync with the main Wohnzimmer speakers.
-- The sendspin watchdog on the main server does NOT cover this device. If needed, install the watchdog on the RPi Nano as well.
+- The sendspin watchdog on the main server does NOT cover this device.
