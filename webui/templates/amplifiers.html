@@ -5,20 +5,31 @@
 {% block content %}
 <h1>Amplifiers</h1>
 
-<div class="test-mode-toggle">
-    <label>
-        <input type="radio" name="test-mode" value="chime" checked onchange="setTestMode('chime')">
-        Chime
-    </label>
-    <label>
-        <input type="radio" name="test-mode" value="tts" onchange="setTestMode('tts')">
-        TTS
-    </label>
+<div class="section">
+    <div class="button-group">
+        <button class="btn btn-success" onclick="setAllAmps('on')">All ON</button>
+        <button class="btn btn-danger" onclick="setAllAmps('off')">All OFF</button>
+        <span class="test-mode-toggle" style="margin-left: 1rem;">
+            <label>
+                <input type="radio" name="test-mode" value="chime" checked onchange="setTestMode('chime')">
+                Chime
+            </label>
+            <label>
+                <input type="radio" name="test-mode" value="tts" onchange="setTestMode('tts')">
+                TTS
+            </label>
+        </span>
+    </div>
 </div>
 
 {% for amp in amplifiers %}
-<div class="section">
-    <h2>{{ amp.id }} <span class="text-muted">({{ amp.card }})</span></h2>
+<div class="section" id="section-{{ amp.id }}">
+    <div class="amp-header">
+        <h2>{{ amp.id }} <span class="text-muted">({{ amp.card }})</span></h2>
+        <div class="amp-power-badge" id="power-{{ amp.id }}">
+            <span class="text-muted">...</span>
+        </div>
+    </div>
 
     <div class="channel-grid">
         {% for ch in amp.channels %}
@@ -84,5 +95,65 @@ async function testChannel(btn) {
         btn.classList.remove('loading');
     }
 }
+
+async function setAmp(amp, state) {
+    try {
+        const response = await fetch('/api/system/amp', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({amp, state})
+        });
+        if (response.ok) {
+            showToast(`${amp} turned ${state}`);
+        } else {
+            showToast('Error', true);
+        }
+        loadAmpPower();
+    } catch (e) {
+        showToast('Connection error', true);
+    }
+}
+
+async function setAllAmps(state) {
+    for (const amp of ['amp1', 'amp2', 'amp3']) {
+        await fetch('/api/system/amp', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({amp, state})
+        });
+    }
+    showToast(`All amplifiers turned ${state}`);
+    loadAmpPower();
+}
+
+async function loadAmpPower() {
+    try {
+        const response = await fetch('/api/system/powermanager');
+        const data = await response.json();
+
+        for (const [amp, info] of Object.entries(data.amps)) {
+            const el = document.getElementById(`power-${amp}`);
+            if (!el) continue;
+
+            const isOn = info.state === 'on';
+            const hasAudio = info.audio_active;
+
+            el.innerHTML = `
+                <span class="power-indicator ${isOn ? 'power-on' : 'power-off'}">
+                    ${isOn ? 'ON' : 'OFF'}
+                </span>
+                ${hasAudio ? '<span class="power-indicator power-audio">Audio</span>' : ''}
+                <button class="btn btn-small ${isOn ? 'btn-danger' : 'btn-success'}"
+                        onclick="setAmp('${amp}', '${isOn ? 'off' : 'on'}')">
+                    ${isOn ? 'Turn Off' : 'Turn On'}
+                </button>
+            `;
+        }
+    } catch (e) {
+        // silently fail
+    }
+}
+
+loadAmpPower();
 </script>
 {% endblock %}

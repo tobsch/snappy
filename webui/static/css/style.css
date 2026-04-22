@@ -1028,3 +1028,97 @@ h2 {
         grid-template-columns: repeat(2, 1fr);
     }
 }
+
+/* Amp power cards */
+.amp-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+}
+
+.amp-card {
+    padding: 1rem;
+    border-radius: 8px;
+    text-align: center;
+    border: 2px solid var(--gray-200);
+}
+
+.amp-card.amp-on {
+    border-color: var(--success);
+    background: #f0fdf4;
+}
+
+.amp-card.amp-off {
+    border-color: var(--gray-300);
+    background: var(--gray-50);
+}
+
+.amp-name {
+    font-weight: 600;
+    font-size: 1.1rem;
+    margin-bottom: 0.25rem;
+}
+
+.amp-state {
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+}
+
+.amp-on .amp-state {
+    color: var(--success);
+}
+
+.amp-off .amp-state {
+    color: var(--gray-400);
+}
+
+.amp-audio {
+    font-size: 0.8rem;
+    color: var(--primary);
+    margin-bottom: 0.5rem;
+}
+
+.amp-actions {
+    margin-top: 0.5rem;
+}
+
+/* Amp header with inline power status */
+.amp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.amp-header h2 {
+    margin: 0;
+}
+
+.amp-power-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.power-indicator {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.power-on {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.power-off {
+    background: var(--gray-100);
+    color: var(--gray-500);
+}
+
+.power-audio {
+    background: #dbeafe;
+    color: #1e40af;
+}

@@ -448,102 +448,69 @@ async def get_services(request: Request):
     return results
 
 
-class RelayRequest(BaseModel):
+class AmpControlRequest(BaseModel):
+    amp: str   # "amp1", "amp2", "amp3"
     state: str  # "on" or "off"
 
 
-@router.post("/system/relay")
-async def control_relay(request: Request, data: RelayRequest):
-    """Control USB relay (on/off)"""
+@router.post("/system/amp")
+async def control_amp(request: Request, data: AmpControlRequest):
+    """Control individual amplifier via ampctl"""
     import asyncio
 
-    # Relay logic is inverted: relay ON = amps OFF
-    cmd_state = "off" if data.state == "on" else "on"
-
     proc = await asyncio.create_subprocess_exec(
-        'crelay', '1', cmd_state,
+        'ampctl', data.state, data.amp,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
     )
-    stdout, stderr = await proc.communicate()
+    _, stderr = await proc.communicate()
 
     if proc.returncode != 0:
-        raise HTTPException(status_code=500, detail=f"Relay control failed: {stderr.decode()}")
+        raise HTTPException(status_code=500, detail=f"ampctl failed: {stderr.decode()}")
 
-    return {"status": "ok", "relay_state": data.state}
+    return {"status": "ok", "amp": data.amp, "state": data.state}
 
 
 @router.get("/system/powermanager")
 async def get_powermanager_status(request: Request):
-    """Get powermanager status (relay state and audio activity)"""
+    """Get per-amp power status via ampctl and ALSA activity"""
     import asyncio
-    import re
+    import json as jsonlib
 
-    result = {
-        "relay_state": "unknown",
-        "audio_active": False,
-        "active_cards": []
-    }
+    amps = {}
 
-    # Get relay state
+    # Get all amp states in one call
+    proc = await asyncio.create_subprocess_exec(
+        'ampctl', 'status',
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL
+    )
+    stdout, _ = await proc.communicate()
     try:
-        proc = await asyncio.create_subprocess_exec(
-            'crelay', '1',
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, _ = await proc.communicate()
-        output = stdout.decode().strip()
-        # crelay output: "Relay 1 is OFF" or "Relay 1 is ON"
-        # Inverted logic: relay OFF = amps ON
-        if 'OFF' in output.upper():
-            result["relay_state"] = "on"  # amps are on
-        elif 'ON' in output.upper():
-            result["relay_state"] = "off"  # amps are off
+        states = jsonlib.loads(stdout.decode())
     except Exception:
-        pass
+        states = {}
 
-    # Check ALSA activity
-    config_svc = get_config_service(request)
-    cards = list(config_svc.get_amplifiers().keys())
+    for amp in ["amp1", "amp2", "amp3"]:
+        amp_info = {"state": states.get(amp, "unknown"), "audio_active": False}
 
-    for card in cards:
+        # Check ALSA activity
         try:
-            # Check /proc/asound/<card>/pcm0p/sub0/status
+            status_file = f'/proc/asound/{amp}/pcm0p/sub0/status'
             proc = await asyncio.create_subprocess_exec(
-                'cat', f'/proc/asound/{card}/pcm0p/sub0/status',
+                'cat', status_file,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL
             )
             stdout, _ = await proc.communicate()
-            status = stdout.decode()
-
-            if 'state: RUNNING' in status:
-                # Check if owner process is alive
-                pid_match = re.search(r'owner_pid\s*:\s*(\d+)', status)
-                if pid_match:
-                    pid = pid_match.group(1)
-                    # Check if process exists
-                    pid_check = await asyncio.create_subprocess_exec(
-                        'cat', f'/proc/{pid}/comm',
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.DEVNULL
-                    )
-                    pid_stdout, _ = await pid_check.communicate()
-                    if pid_check.returncode == 0:
-                        # Process exists - check avail_max for stale streams
-                        # Active streams have avail_max bounded by buffer (~64K)
-                        # Stale streams have avail_max growing unboundedly
-                        avail_match = re.search(r'avail_max\s*:\s*(\d+)', status)
-                        if avail_match:
-                            avail_max = int(avail_match.group(1))
-                            if avail_max < 500000:  # ~10 sec at 48kHz
-                                result["active_cards"].append(card)
-                                result["audio_active"] = True
+            if 'state: RUNNING' in stdout.decode():
+                amp_info["audio_active"] = True
         except Exception:
             pass
 
-    return result
+        amps[amp] = amp_info
+
+    return {"amps": amps}
 
 
 # === Snapcast ===

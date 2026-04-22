@@ -23,29 +23,6 @@
 </div>
 
 <div class="section">
-    <h2>Amplifier Power</h2>
-
-    <div class="powermanager-status" id="powermanager-status">
-        <p class="text-muted">Loading status...</p>
-    </div>
-
-    <div class="button-group" style="margin-top: 1rem;">
-        <button class="btn btn-success" onclick="setRelay('on')">
-            Amplifiers ON
-        </button>
-        <button class="btn btn-danger" onclick="setRelay('off')">
-            Amplifiers OFF
-        </button>
-        <button class="btn" onclick="loadPowermanagerStatus()">
-            Refresh Status
-        </button>
-    </div>
-    <p class="setting-help">
-        The power manager automatically turns amplifiers on/off based on audio activity.
-    </p>
-</div>
-
-<div class="section">
     <h2>Deployment</h2>
     <div class="button-group">
         <button class="btn btn-primary"
@@ -82,24 +59,6 @@
 </div>
 
 <script>
-async function setRelay(state) {
-    try {
-        const response = await fetch('/api/system/relay', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({state: state})
-        });
-        if (response.ok) {
-            showToast(state === 'on' ? 'Amplifiers turned on' : 'Amplifiers turned off');
-        } else {
-            showToast('Error', true);
-        }
-        loadPowermanagerStatus();
-    } catch (e) {
-        showToast('Connection error', true);
-    }
-}
-
 async function updateMaxVolume(input) {
     const value = parseInt(input.value) / 100;
     document.getElementById('max-volume-value').textContent = input.value + '%';
@@ -115,41 +74,6 @@ async function updateMaxVolume(input) {
         showToast('Error saving', true);
     }
 }
-
-async function loadPowermanagerStatus() {
-    const container = document.getElementById('powermanager-status');
-    try {
-        const response = await fetch('/api/system/powermanager');
-        const data = await response.json();
-
-        let html = '<div class="powermanager-info">';
-        html += `<div class="status-row">
-            <span class="status-label">Relay:</span>
-            <span class="status-value ${data.relay_state === 'on' ? 'status-on' : 'status-off'}">
-                ${data.relay_state === 'on' ? 'ON (Amplifiers powered)' : 'OFF (Amplifiers off)'}
-            </span>
-        </div>`;
-        html += `<div class="status-row">
-            <span class="status-label">Audio Activity:</span>
-            <span class="status-value ${data.audio_active ? 'status-on' : 'status-off'}">
-                ${data.audio_active ? 'Active' : 'Inactive'}
-            </span>
-        </div>`;
-        if (data.active_cards && data.active_cards.length > 0) {
-            html += `<div class="status-row">
-                <span class="status-label">Active Cards:</span>
-                <span class="status-value">${data.active_cards.join(', ')}</span>
-            </div>`;
-        }
-        html += '</div>';
-        container.innerHTML = html;
-    } catch (e) {
-        container.innerHTML = '<p class="error">Error loading status</p>';
-    }
-}
-
-// Load powermanager status on page load
-loadPowermanagerStatus();
 
 // Format config preview response
 document.body.addEventListener('htmx:afterSwap', function(event) {

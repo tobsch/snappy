@@ -7,13 +7,6 @@
 # Detection: samples hw_ptr twice (0.2s apart) to check if audio is
 # actually flowing, same principle as the sendspin watchdog.
 
-# GPIO pin mapping (active-low: LOW=shutdown, HIGH=running)
-declare -A AMP_GPIO=(
-  [amp1]=27
-  [amp2]=22
-  [amp3]=17
-)
-
 CARDS=("amp1" "amp2" "amp3")
 
 # Idle timeout per amp before shutting down (seconds)
@@ -28,15 +21,11 @@ log() {
 }
 
 amp_enable() {
-  local amp=$1
-  local gpio=${AMP_GPIO[$amp]}
-  pinctrl set $gpio op dh
+  ampctl on "$1" >/dev/null
 }
 
 amp_disable() {
-  local amp=$1
-  local gpio=${AMP_GPIO[$amp]}
-  pinctrl set $gpio op dl
+  ampctl off "$1" >/dev/null
 }
 
 # Check if audio is flowing on a specific card by sampling hw_ptr twice
