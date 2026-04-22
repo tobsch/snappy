@@ -15,16 +15,19 @@ With GPIO SHDN control, the USB audio connection stays alive. Only the amplifier
 
 Using the left side of the Raspberry Pi 5 40-pin header, pins 9–15:
 
-| Physical Pin | GPIO | Function |
-|-------------|------|----------|
-| 9           | GND  | Ground (shared) |
-| 11          | 17   | amp1 SHDN |
-| 13          | 27   | amp2 SHDN |
-| 15          | 22   | amp3 SHDN |
+| Amp  | GND Pin | SHDN Pin | GPIO |
+|------|---------|----------|------|
+| amp1 | 6       | 13       | 27   |
+| amp2 | 14      | 15       | 22   |
+| amp3 | 9       | 11       | 17   |
 
 ## Wiring
 
-Connect each GPIO pin to the SHDN pin on the corresponding GAB8 amplifier board. Connect the shared GND (pin 9) to the amplifier ground.
+### SHDN (Shutdown)
+Connect each GPIO pin to the SHDN pin on the corresponding GAB8 amplifier board. Each amp gets its own GND pin from the Pi header.
+
+### SYNC (PWM Synchronization)
+Connect the SYNC pins of all three GAB8 boards together (daisy-chain: amp1 SYNC → amp2 SYNC → amp3 SYNC). This synchronizes PWM switching frequencies across boards and prevents audible beating/interference from unsynchronized Class-D switching.
 
 **TODO:** Confirm SHDN pin logic level on the GAB8 (active-low or active-high) before implementing.
 

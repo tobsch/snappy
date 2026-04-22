@@ -9,13 +9,13 @@
 # Detection strategy:
 # 1. Find RUNNING ALSA streams owned by sendspin threads
 # 2. Find the owning systemd service
-# 3. Check if there has been ANY sendspin log activity in the last IDLE_THRESHOLD seconds
-#    (active playback produces periodic logs: volume changes, sync corrections, etc.)
-# 4. If the service has been completely silent AND has a stale ALSA stream, restart it
+# 3. Check if "Disconnected from server" occurred AFTER the last "Stream STARTED"
+#    This is the only reliable stale indicator — stream was opened, then server went away.
 #
-# This avoids false positives on long playback sessions, which produce periodic log entries.
+# We do NOT use log-idle heuristics (e.g. "no logs for 30 min = stale") because
+# long uninterrupted playback can go 30+ minutes without any log entries, causing
+# false positives that kill active sessions.
 
-IDLE_THRESHOLD=1800  # 30 minutes of zero log activity before considering stale
 CARDS=("amp1" "amp2" "amp3")
 
 log() {
@@ -41,9 +41,6 @@ check_service_stale() {
     return 1
   fi
 
-  local now
-  now=$(date +%s)
-
   # Check if there's been a disconnect/connection error AFTER the last Stream STARTED.
   # This is a definitive stale indicator: stream opened, then server went away.
   local last_started last_disconnect
@@ -58,28 +55,47 @@ check_service_stale() {
     return 0
   fi
 
-  # Check for ANY log activity in the last IDLE_THRESHOLD seconds.
-  # Active playback produces periodic entries (volume, sync, format changes).
-  # A completely silent service with a RUNNING ALSA stream is stale.
-  local last_any
-  last_any=$(journalctl -u "$service" --no-pager -n 1 --output=short-unix 2>/dev/null \
-    | tail -1 | awk '{print int($1)}')
-
-  if [[ -z "$last_any" ]]; then
-    log "Stale stream for $service (no log entries at all) - restarting"
-    systemctl restart "$service"
-    return 0
-  fi
-
-  local idle_secs=$(( now - last_any ))
-
-  if (( idle_secs >= IDLE_THRESHOLD )); then
-    log "Stale stream for $service (no log activity for ${idle_secs}s) - restarting"
+  # Check if audio is actually flowing on the WebSocket to lox-audioserver.
+  # Active playback: ~288 KB/s received (48kHz * 24-bit * 2ch PCM)
+  # Idle/stale: near zero bytes received
+  if ! is_audio_flowing "$pid"; then
+    log "Stale stream for $service (no audio data flowing on WebSocket) - restarting"
     systemctl restart "$service"
     return 0
   fi
 
   return 0
+}
+
+# Check if audio data is flowing on the sendspin WebSocket connection.
+# Takes two readings of bytes_received 2 seconds apart.
+# Active PCM: ~288 KB/s = ~576 KB in 2 seconds
+# Threshold: 50 KB in 2 seconds (generous margin for compressed formats)
+is_audio_flowing() {
+  local pid=$1
+  local bytes1 bytes2 delta
+
+  bytes1=$(ss -tpi dst 127.0.0.1:7090 2>/dev/null \
+    | grep -A1 "pid=$pid," \
+    | grep -oP 'bytes_received:\K[0-9]+')
+
+  [[ -n "$bytes1" ]] || return 1  # No connection found
+
+  sleep 2
+
+  bytes2=$(ss -tpi dst 127.0.0.1:7090 2>/dev/null \
+    | grep -A1 "pid=$pid," \
+    | grep -oP 'bytes_received:\K[0-9]+')
+
+  [[ -n "$bytes2" ]] || return 1
+
+  delta=$(( bytes2 - bytes1 ))
+
+  if (( delta > 50000 )); then
+    return 0  # Audio is flowing
+  fi
+
+  return 1  # No meaningful data received
 }
 
 check_stale_streams() {
