@@ -10,11 +10,11 @@
 #   amp2 = USB controller 1, port 1.1 (via hub)
 #   amp3 = USB controller 1, port 1.3 (via hub)
 
-# GAB8 on USB controller 0, port 1 (hub) -> amp1
-SUBSYSTEM=="sound", ATTR{id}=="GAB8*", ENV{ID_PATH}=="platform-xhci-hcd.0-usb-0:1:1.1", ATTR{id}="amp1"
+# GAB8 on USB controller 1, port 2 -> amp1 (kueche)
+SUBSYSTEM=="sound", ATTR{id}=="GAB8*", ENV{ID_PATH}=="platform-xhci-hcd.1-usb-0:2:1.1", ATTR{id}="amp1"
 
-# GAB8 on USB controller 1, port 1.1 (hub) -> amp2
-SUBSYSTEM=="sound", ATTR{id}=="GAB8*", ENV{ID_PATH}=="platform-xhci-hcd.1-usb-0:1.1:1.1", ATTR{id}="amp2"
+# GAB8 on USB controller 0, port 1 -> amp2
+SUBSYSTEM=="sound", ATTR{id}=="GAB8*", ENV{ID_PATH}=="platform-xhci-hcd.0-usb-0:1:1.1", ATTR{id}="amp2"
 
-# GAB8 on USB controller 1, port 1.3 (hub) -> amp3
-SUBSYSTEM=="sound", ATTR{id}=="GAB8*", ENV{ID_PATH}=="platform-xhci-hcd.1-usb-0:1.3:1.1", ATTR{id}="amp3"
+# GAB8 on USB controller 0, port 2 -> amp3
+SUBSYSTEM=="sound", ATTR{id}=="GAB8*", ENV{ID_PATH}=="platform-xhci-hcd.0-usb-0:2:1.1", ATTR{id}="amp3"

@@ -87,6 +87,7 @@ Originally built for Wondom GAB8 amplifiers but works with any multi-channel USB
 │   └── 99-fernseher.rules   # udev rules for TV audio input
 ├── services/
 │   ├── sendspin@.service    # Systemd template for sendspin clients (PRIMARY)
+│   ├── amp-volume.service   # Sets ALSA mixer levels to 100% at boot
 │   └── snapclient@.service  # Systemd template for snapclients (LEGACY)
 ├── powermanager/            # LEGACY - being replaced by lox-audioserver
 │   ├── powermanager.sh      # Auto relay control based on ALSA activity
@@ -264,6 +265,19 @@ crelay 1 off       # Relay off (amps ON with NC wiring)
 - **Volume control**: `max_volume` in config limits ALSA ttable coefficient. Per-speaker volume is percentage of max.
 - **Cross-device stereo**: Left speaker on amp1, right on amp2 - handled by ALSA multi plugin.
 
+### Current Amp-to-USB Mapping (as of 2026-04)
+
+| Amp   | USB Path                              | Primary Rooms |
+|-------|---------------------------------------|---------------|
+| amp1  | platform-xhci-hcd.1-usb-0:2:1.1       | Küche         |
+| amp2  | platform-xhci-hcd.0-usb-0:1:1.1       | Wohnzimmer, Esszimmer |
+| amp3  | platform-xhci-hcd.0-usb-0:2:1.1       | Backupküche, others |
+
+To identify which amp is which, play a test tone on a specific channel:
+```bash
+speaker-test -D plughw:amp1 -c 8 -t sine -s 5  # Channel 5 on amp1
+```
+
 ## Prerequisites
 
 - Python 3
@@ -272,6 +286,8 @@ crelay 1 off       # Relay off (amps ON with NC wiring)
 - Multi-channel USB audio amplifiers
 - Docker for lox-audioserver
 - `sendspin` (`pip install --user --break-system-packages sendspin`)
+  - Current version: 5.9.0 (as of 2026-04)
+  - Upgrade: `pip install --user --break-system-packages --upgrade sendspin aiosendspin`
 - `libportaudio2` for sendspin audio output
 - `crelay` for USB relay control (optional, can use lox-audioserver's built-in)
 
@@ -295,16 +311,96 @@ WARNING:sendspin.daemon.daemon:Connection error (ClientConnectorError)
 - Check port 7090 is listening: `ss -tlnp | grep 7090`
 - Restart lox-audioserver: `sudo docker restart lox-audioserver`
 
+### Loud noise or distortion from speakers
+
+This usually happens after lox-audioserver restarts while sendspin is playing:
+```bash
+# Restart the affected sendspin service to clear corrupted audio state
+sudo systemctl restart sendspin@room_kueche
+```
+
 ### ALSA mixer resets after power cycle
 
-The udev rule `99-amp-volume.rules` should restore settings. Verify:
+The `amp-volume.service` sets mixer levels to 100% at boot. If levels reset:
 ```bash
-# Check rule is installed
-cat /etc/udev/rules.d/99-amp-volume.rules
+# Check service status
+sudo systemctl status amp-volume.service
 
-# Manually restore
-sudo alsactl restore amp1
+# Manually set mixer levels
+amixer -c amp1 sset PCM 100%
+amixer -c amp2 sset PCM 100%
+amixer -c amp3 sset PCM 100%
 ```
+
+Note: Do NOT use `alsactl restore` as it may restore old/incorrect levels.
+
+### Amplifiers not detected or wrong names
+
+If amps show up with wrong names after reconnection:
+```bash
+# Check current ALSA cards
+cat /proc/asound/cards
+
+# Verify udev rules
+cat /etc/udev/rules.d/99-wondom-gab8.rules
+
+# Test which amp is which by playing on specific channel
+speaker-test -D plughw:amp1 -c 8 -t sine -s 5  # Plays on channel 5
+```
+
+### Identifying USB paths for udev rules
+
+When amps are reconnected to different USB ports:
+```bash
+# Find USB path for each GAB8 amp
+for card in /sys/class/sound/card*; do
+  name=$(cat "$card/id" 2>/dev/null)
+  if [[ "$name" == GAB8* ]]; then
+    path=$(udevadm info -q property "$card" | grep ID_PATH= | cut -d= -f2)
+    echo "$name: $path"
+  fi
+done
+```
+
+## Known Issues & Workarounds
+
+### lox-audioserver resets zone volumes to 10% (or 30%)
+
+**Issue**: When Loxone Miniserver connects to lox-audioserver, all zone volumes reset to default (10% in older versions, 30% in newer).
+
+**Root cause**: In `loxoneConfigService.js`, the `extractZonesFromPayload()` function completely replaces all zones with freshly built ones using `defaultVolumes()`:
+```javascript
+cfg.zones = buildZoneConfigs(descriptors);  // Replaces all zones!
+```
+
+This happens on every Miniserver connection, not just startup. Editing `config.json` directly doesn't help because it gets overwritten.
+
+**Status**: Reported as GitHub issue #219. The fix requires lox-audioserver to MERGE existing zone settings instead of replacing them.
+
+**Workaround**: Currently none that persists. Volume must be set via Loxone or the lox-audioserver web UI after each reconnection.
+
+### ALSA mixer levels reset to ~57% after amp power cycle
+
+**Issue**: When amplifiers power off and back on, ALSA mixer levels reset to a default (~57%).
+
+**Solution**: Created `amp-volume.service` that runs at boot with a delay:
+```bash
+# Install the service
+sudo cp services/amp-volume.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable amp-volume.service
+```
+
+**Important**: Do NOT use `alsactl restore` in udev rules - it can restore incorrect levels.
+
+### speaker_config.json volume settings
+
+Volume values in `speaker_config.json` are percentages (0-100) of the `global.max_volume` setting:
+- `max_volume: 0.25` means 25% of full scale is the maximum
+- Speaker `volume: 100` means 100% of that max (so 25% actual)
+- Speaker `volume: 50` means 50% of that max (so 12.5% actual)
+
+For full volume output, set speaker volumes to 100 and adjust `max_volume` as needed.
 
 ## Legacy: Snapcast Setup
 

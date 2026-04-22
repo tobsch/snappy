@@ -3,9 +3,9 @@
 # ALSA cards to monitor for activity (using persistent udev names)
 CARDS=("amp1" "amp2" "amp3")
 
-# Relay commands (inverted: relay off = amp on, relay on = amp off)
-RELAY_ON_CMD="crelay 1 off"
-RELAY_OFF_CMD="crelay 1 on"
+# Relay commands (normal: relay on = amp on, relay off = amp off)
+RELAY_ON_CMD="crelay 1 on"
+RELAY_OFF_CMD="crelay 1 off"
 
 # Check interval in seconds
 SLEEP_INTERVAL=0.1

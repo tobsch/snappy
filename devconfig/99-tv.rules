@@ -1,0 +1,8 @@
+# Udev rules for C-Media USB Audio adapter (TV input)
+# Assigns persistent ALSA card name based on USB path
+#
+# Install: sudo cp 99-fernseher.rules /etc/udev/rules.d/
+# Reload:  sudo udevadm control --reload-rules && sudo udevadm trigger
+
+# C-Media USB Advanced Audio Device on USB controller 0, port 2 -> tv
+SUBSYSTEM=="sound", ATTR{id}=="Device", ENV{ID_PATH}=="platform-xhci-hcd.0-usb-0:2:1.0", ATTR{id}="tv"

@@ -196,8 +196,8 @@ pcm.room_{room_id} {{
 def generate_cross_device_config(room_id: str, left: dict, right: dict) -> str:
     """Generate ALSA config for stereo pair across different devices.
 
-    Creates two separate mono devices for left and right speakers.
-    Requires two snapclient instances per room for proper playback.
+    Uses ALSA multi plugin to combine two amplifiers into a single stereo device.
+    Also creates individual speaker devices for per-speaker testing.
     """
     left_device = left["amplifier"]
     right_device = right["amplifier"]
@@ -211,7 +211,6 @@ def generate_cross_device_config(room_id: str, left: dict, right: dict) -> str:
     return f"""
 #########
 # room_{room_id} - Cross-device stereo: {left_device} ch{left_ch+1} + {right_device} ch{right_ch+1}
-# Use speaker_{room_id}_left and speaker_{room_id}_right with separate snapclients
 #########
 
 pcm._internal_{room_id}_left {{
@@ -240,10 +239,30 @@ pcm.speaker_{room_id}_right {{
     slave.pcm "_internal_{room_id}_right"
 }}
 
-# Combined device for testing (mono mix to left speaker only)
+# Cross-device stereo: multi plugin combines left ({left_device}) and right ({right_device})
+pcm._internal_{room_id}_multi {{
+    type multi
+    slaves.a.pcm "{left_device}_dmix"
+    slaves.a.channels 8
+    slaves.b.pcm "{right_device}_dmix"
+    slaves.b.channels 8
+    bindings.0.slave a
+    bindings.0.channel {left_ch}
+    bindings.1.slave b
+    bindings.1.channel {right_ch}
+}}
+
+pcm._internal_{room_id}_route {{
+    type route
+    slave.pcm "_internal_{room_id}_multi"
+    slave.channels 2
+    ttable.0.0 {left_vol}
+    ttable.1.1 {right_vol}
+}}
+
 pcm.room_{room_id} {{
     type plug
-    slave.pcm "_internal_{room_id}_left"
+    slave.pcm "_internal_{room_id}_route"
 }}
 """
 

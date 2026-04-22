@@ -1,0 +1,7 @@
+[Unit]
+Description=Sendspin stale stream watchdog
+After=sound.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/sendspin-watchdog.sh
