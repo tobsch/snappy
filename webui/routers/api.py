@@ -126,11 +126,9 @@ async def set_zone_rooms(request: Request, zone_id: str, data: ZoneRoomsUpdate):
     for room_id, room in all_rooms.items():
         zones = room.get('zones', [])
         if room_id in data.rooms:
-            # Room should be in this zone
             if zone_id not in zones:
                 zones.append(zone_id)
         else:
-            # Room should NOT be in this zone
             if zone_id in zones:
                 zones.remove(zone_id)
         room['zones'] = zones
@@ -161,147 +159,6 @@ async def update_speaker(request: Request, speaker_id: str, data: SpeakerUpdate)
     config_svc = get_config_service(request)
     config_svc.update_speaker(speaker_id, data.model_dump())
     return {"status": "ok", "speaker_id": speaker_id}
-
-
-# === Stream endpoints ===
-
-@router.get("/config/streams")
-async def get_streams(request: Request):
-    """Get all streams"""
-    config_svc = get_config_service(request)
-    return config_svc.get_streams()
-
-
-class StreamCreate(BaseModel):
-    type: str  # librespot, airplay, pipe, alsa, sendspin
-    name: str
-    bitrate: int | None = None  # for librespot
-    port: int | None = None  # for airplay
-    url: str | None = None  # for sendspin
-    path: str | None = None  # for pipe
-    input: str | None = None  # for alsa
-
-
-@router.post("/config/streams/{stream_id}")
-async def create_stream(request: Request, stream_id: str, data: StreamCreate):
-    """Create a new stream"""
-    config_svc = get_config_service(request)
-
-    stream_config = {"type": data.type, "name": data.name}
-
-    if data.type == "librespot":
-        stream_config["bitrate"] = data.bitrate or 320
-    elif data.type == "airplay":
-        stream_config["port"] = data.port or 7000
-    elif data.type == "sendspin":
-        stream_config["url"] = data.url or "ws://192.168.0.235:7090/sendspin"
-    elif data.type == "pipe":
-        stream_config["path"] = data.path or f"/tmp/snapfifo_{stream_id}"
-    elif data.type == "alsa":
-        stream_config["input"] = data.input
-
-    config_svc.update_stream(stream_id, stream_config)
-    return {"status": "ok", "stream_id": stream_id}
-
-
-@router.delete("/config/streams/{stream_id}")
-async def delete_stream(request: Request, stream_id: str):
-    """Delete a stream"""
-    config_svc = get_config_service(request)
-    if not config_svc.delete_stream(stream_id):
-        raise HTTPException(status_code=404, detail="Stream not found")
-    # Also remove from stream_targets
-    targets = config_svc.get_stream_targets()
-    if stream_id in targets:
-        del config_svc.config['snapcast']['stream_targets'][stream_id]
-        config_svc.save()
-    return {"status": "ok"}
-
-
-# === Stream targets ===
-
-class StreamTargetCreate(BaseModel):
-    zones: list[str] = []
-    rooms: list[str] = []
-
-
-@router.post("/config/stream_targets/{stream_id}")
-async def set_stream_targets(request: Request, stream_id: str, data: StreamTargetCreate):
-    """Set target zones/rooms for a stream"""
-    config_svc = get_config_service(request)
-    config_svc.update_stream_targets(stream_id, data.model_dump())
-    return {"status": "ok", "stream_id": stream_id}
-
-
-# === Zone stream toggles ===
-
-@router.put("/zones/{zone_id}/streams/{stream_type}")
-async def enable_zone_stream(request: Request, zone_id: str, stream_type: str):
-    """Enable a stream type for a zone (creates stream with defaults)"""
-    config_svc = get_config_service(request)
-
-    # Map display type to internal type
-    internal_type = 'librespot' if stream_type == 'spotify' else stream_type
-    stream_id = f"{stream_type}_{zone_id}"
-
-    # Get zone name for display name
-    zone = config_svc.get_zone(zone_id)
-    zone_name = zone.get('name', zone_id) if zone else zone_id
-
-    # Create stream with sensible defaults
-    if internal_type == 'librespot':
-        stream_config = {
-            "type": "librespot",
-            "name": zone_name,
-            "bitrate": 320,
-        }
-    elif internal_type == 'airplay':
-        # Find next available port
-        existing_ports = set()
-        for s in config_svc.get_streams().values():
-            if s.get('type') == 'airplay' and s.get('port'):
-                existing_ports.add(s['port'])
-        port = 7000
-        while port in existing_ports:
-            port += 1
-        stream_config = {
-            "type": "airplay",
-            "name": zone_name,
-            "port": port,
-        }
-    elif internal_type == 'sendspin':
-        stream_config = {
-            "type": "sendspin",
-            "name": zone_name,
-            "url": "ws://192.168.0.235:7090/sendspin",
-        }
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown stream type: {stream_type}")
-
-    # Save stream and target
-    config_svc.update_stream(stream_id, stream_config)
-    config_svc.update_stream_targets(stream_id, {"zones": [zone_id]})
-
-    return {"status": "ok", "stream_id": stream_id}
-
-
-@router.delete("/zones/{zone_id}/streams/{stream_type}")
-async def disable_zone_stream(request: Request, zone_id: str, stream_type: str):
-    """Disable a stream type for a zone (removes stream)"""
-    config_svc = get_config_service(request)
-
-    stream_id = f"{stream_type}_{zone_id}"
-
-    # Delete stream
-    config_svc.delete_stream(stream_id)
-
-    # Also remove from stream_targets
-    if 'snapcast' in config_svc.config and 'stream_targets' in config_svc.config['snapcast']:
-        if stream_id in config_svc.config['snapcast']['stream_targets']:
-            del config_svc.config['snapcast']['stream_targets'][stream_id]
-            config_svc.save()
-
-    return {"status": "ok"}
 
 
 # === Global settings ===
@@ -363,7 +220,7 @@ async def test_room(request: Request, data: RoomTestRequest):
 
 @router.post("/deploy")
 async def deploy(request: Request):
-    """Deploy configuration (generates configs, restarts services)"""
+    """Deploy configuration (generates ALSA config, restarts services)"""
     import asyncio
 
     project_dir = request.app.state.project_dir
@@ -391,7 +248,7 @@ async def deploy(request: Request):
 
 @router.get("/deploy/preview")
 async def preview_deploy(request: Request):
-    """Preview generated configs without deploying"""
+    """Preview generated ALSA config without deploying"""
     import asyncio
 
     project_dir = request.app.state.project_dir
@@ -405,18 +262,8 @@ async def preview_deploy(request: Request):
     )
     alsa_stdout, _ = await alsa_proc.communicate()
 
-    # Generate Snapcast config
-    snap_proc = await asyncio.create_subprocess_exec(
-        'python3', str(project_dir / 'generate_snapserver_conf.py'),
-        cwd=str(project_dir),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    snap_stdout, _ = await snap_proc.communicate()
-
     return {
         "alsa_config": alsa_stdout.decode(),
-        "snapserver_config": snap_stdout.decode(),
     }
 
 
@@ -427,12 +274,11 @@ async def get_services(request: Request):
     """Get status of system services"""
     import asyncio
 
-    services = ['snapserver', 'powermanager']
+    services = ['powermanager']
 
-    # Get snapclient and sendspin services
+    # Get sendspin services for each room
     config_svc = get_config_service(request)
     for room_id in config_svc.get_rooms().keys():
-        services.append(f'snapclient@room_{room_id}')
         services.append(f'sendspin@room_{room_id}')
 
     results = {}
@@ -513,49 +359,30 @@ async def get_powermanager_status(request: Request):
     return {"amps": amps}
 
 
-# === Snapcast ===
+# === Sendspin status ===
 
-from services.snapcast import SnapcastClient
+@router.get("/system/sendspin")
+async def get_sendspin_status(request: Request):
+    """Get sendspin client status for all rooms"""
+    import asyncio
 
+    config_svc = get_config_service(request)
+    clients = {}
 
-@router.get("/snapcast/status")
-async def snapcast_status():
-    """Get Snapcast server status"""
-    try:
-        client = SnapcastClient()
-        status = await client.get_status()
-        return status
-    except Exception as e:
-        return {"error": str(e)}
+    for room_id in config_svc.get_rooms().keys():
+        service = f'sendspin@room_{room_id}'
+        proc = await asyncio.create_subprocess_exec(
+            'systemctl', 'is-active', service,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        stdout, _ = await proc.communicate()
+        status = stdout.decode().strip()
 
+        clients[room_id] = {
+            "service": service,
+            "active": status == "active",
+            "status": status,
+        }
 
-class GroupStreamRequest(BaseModel):
-    group_id: str
-    stream_id: str
-
-
-@router.post("/snapcast/group/stream")
-async def set_group_stream(data: GroupStreamRequest):
-    """Set stream for a group"""
-    try:
-        client = SnapcastClient()
-        await client.set_group_stream(data.group_id, data.stream_id)
-        return {"status": "ok"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-class GroupVolumeRequest(BaseModel):
-    client_id: str
-    volume: int
-
-
-@router.post("/snapcast/client/volume")
-async def set_client_volume(data: GroupVolumeRequest):
-    """Set volume for a client"""
-    try:
-        client = SnapcastClient()
-        await client.set_client_volume(data.client_id, data.volume)
-        return {"status": "ok"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {"clients": clients}

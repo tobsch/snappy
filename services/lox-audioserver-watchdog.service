@@ -1,0 +1,13 @@
+[Unit]
+Description=Watchdog for lox-audioserver librespot skip loop
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/lox-audioserver-watchdog.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

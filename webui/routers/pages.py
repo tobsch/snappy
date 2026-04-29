@@ -22,7 +22,6 @@ async def dashboard(request: Request):
         "request": request,
         "rooms": config_svc.get_rooms(),
         "zones": config_svc.get_zones(),
-        "streams": config_svc.get_streams(),
         "amplifiers": config_svc.get_amplifiers(),
     })
 
@@ -90,28 +89,11 @@ async def rooms(request: Request):
 
 @router.get("/zones", response_class=HTMLResponse)
 async def zones(request: Request):
-    """Zone & Stream management page"""
+    """Zone management page"""
     config_svc = get_config_service(request)
     templates = request.app.state.templates
 
-    # Get all streams and their targets
-    all_streams = config_svc.get_streams()
-    stream_targets = config_svc.get_stream_targets()
-
-    # Build set of enabled stream types per zone
-    zone_stream_types = {}
-    for stream_id, targets in stream_targets.items():
-        stream = all_streams.get(stream_id, {})
-        stream_type = stream.get('type', 'unknown')
-        # Map librespot -> spotify for display
-        if stream_type == 'librespot':
-            stream_type = 'spotify'
-        for zone_id in targets.get('zones', []):
-            if zone_id not in zone_stream_types:
-                zone_stream_types[zone_id] = set()
-            zone_stream_types[zone_id].add(stream_type)
-
-    # Enrich zone data with member rooms and stream flags
+    # Enrich zone data with member rooms
     zones_data = []
     for zone_id, zone in config_svc.get_zones().items():
         member_rooms = config_svc.get_rooms_in_zone(zone_id)
@@ -124,15 +106,11 @@ async def zones(request: Request):
                     'name': room.get('name', room_id),
                 })
 
-        enabled_types = zone_stream_types.get(zone_id, set())
         zones_data.append({
             'id': zone_id,
             'name': zone.get('name', zone_id),
             'include_all': zone.get('include_all', False),
             'rooms': rooms_info,
-            'has_spotify': 'spotify' in enabled_types,
-            'has_airplay': 'airplay' in enabled_types,
-            'has_sendspin': 'sendspin' in enabled_types,
         })
 
     return templates.TemplateResponse("zones.html", {
@@ -142,38 +120,9 @@ async def zones(request: Request):
     })
 
 
-@router.get("/streams", response_class=HTMLResponse)
-async def streams(request: Request):
-    """Stream configuration page"""
-    config_svc = get_config_service(request)
-    templates = request.app.state.templates
-
-    # Enrich stream data with targets
-    streams_data = []
-    stream_targets = config_svc.get_stream_targets()
-
-    for stream_id, stream in config_svc.get_streams().items():
-        targets = stream_targets.get(stream_id, {})
-        streams_data.append({
-            'id': stream_id,
-            'name': stream.get('name', stream_id),
-            'type': stream.get('type', 'unknown'),
-            'config': stream,
-            'target_zones': targets.get('zones', []),
-            'target_rooms': targets.get('rooms', []),
-        })
-
-    return templates.TemplateResponse("streams.html", {
-        "request": request,
-        "streams": streams_data,
-        "zones": config_svc.get_zones(),
-        "rooms": config_svc.get_rooms(),
-    })
-
-
 @router.get("/playback", response_class=HTMLResponse)
 async def playback(request: Request):
-    """Playback control page (Snapcast)"""
+    """Sendspin client status page"""
     templates = request.app.state.templates
 
     return templates.TemplateResponse("playback.html", {

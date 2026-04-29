@@ -82,8 +82,6 @@ document.body.addEventListener('htmx:afterSwap', function(event) {
         event.target.innerHTML = `
             <h3>ALSA Config</h3>
             <pre><code>${escapeHtml(data.alsa_config)}</code></pre>
-            <h3>Snapserver Config</h3>
-            <pre><code>${escapeHtml(data.snapserver_config)}</code></pre>
         `;
     }
     if (event.target.id === 'services-list') {

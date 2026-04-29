@@ -1,72 +1,43 @@
 {% extends "base.html" %}
 
-{% block title %}Playback - Multiroom Audio{% endblock %}
+{% block title %}Sendspin - Multiroom Audio{% endblock %}
 
 {% block content %}
-<h1>Playback</h1>
+<h1>Sendspin Clients</h1>
 
 <div class="section">
-    <button class="btn" onclick="loadSnapcastStatus()">
-        Refresh Status
-    </button>
+    <button class="btn" onclick="loadStatus()">Refresh Status</button>
 </div>
 
-<div id="snapcast-status">
+<div id="sendspin-status">
     <p class="text-muted">Loading...</p>
 </div>
 
 <script>
-async function loadSnapcastStatus() {
-    const container = document.getElementById('snapcast-status');
+async function loadStatus() {
+    const container = document.getElementById('sendspin-status');
     container.innerHTML = '<p>Loading...</p>';
 
     try {
-        const response = await fetch('/api/snapcast/status');
+        const response = await fetch('/api/system/sendspin');
         const data = await response.json();
 
-        if (data.error) {
-            container.innerHTML = `<p class="error">Error: ${data.error}</p>`;
+        if (!data.clients || Object.keys(data.clients).length === 0) {
+            container.innerHTML = '<p class="text-muted">No sendspin clients configured.</p>';
             return;
         }
 
-        let html = '';
-
-        // Streams
-        html += '<div class="section"><h2>Streams</h2><div class="streams-status">';
-        for (const stream of data.streams || []) {
-            const statusClass = stream.status === 'playing' ? 'playing' : 'idle';
+        let html = '<div class="services-grid">';
+        for (const [roomId, client] of Object.entries(data.clients)) {
+            const statusClass = client.active ? 'active' : 'inactive';
             html += `
-                <div class="stream-status-card ${statusClass}">
-                    <div class="stream-name">${stream.id}</div>
-                    <div class="stream-state">${stream.status}</div>
+                <div class="service-row ${statusClass}">
+                    <span class="service-name">${roomId}</span>
+                    <span class="service-status">${client.status}</span>
                 </div>
             `;
         }
-        html += '</div></div>';
-
-        // Groups
-        html += '<div class="section"><h2>Groups</h2><div class="groups-status">';
-        for (const group of data.groups || []) {
-            html += `
-                <div class="group-card">
-                    <div class="group-header">
-                        <h3>${group.name || 'Group'}</h3>
-                        <span class="badge">${group.stream_id}</span>
-                    </div>
-                    <div class="group-clients">
-            `;
-            for (const client of group.clients || []) {
-                const connClass = client.connected ? 'connected' : 'disconnected';
-                html += `
-                    <div class="client-row ${connClass}">
-                        <span class="client-name">${client.name || client.id}</span>
-                        <span class="client-status">${client.connected ? 'Connected' : 'Disconnected'}</span>
-                    </div>
-                `;
-            }
-            html += '</div></div>';
-        }
-        html += '</div></div>';
+        html += '</div>';
 
         container.innerHTML = html;
     } catch (e) {
@@ -75,6 +46,6 @@ async function loadSnapcastStatus() {
 }
 
 // Auto-load on page load
-loadSnapcastStatus();
+loadStatus();
 </script>
 {% endblock %}

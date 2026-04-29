@@ -4,8 +4,9 @@
 
 * Tools to identify and configure speakers connected to your USB amps.
 * Generator for ALSA configuration for stereo room-based playback
-* Generator for Snapcast server configuration for multiroom streaming & matching clients
-* Power manager to turn on and off amps via Relays
+* Sendspin service templates for lox-audioserver integration
+* Per-amp GPIO power management based on audio activity
+* Web interface for testing and configuration
 
 ## About This Project
 
@@ -13,9 +14,9 @@ I built a house with a custom multiroom audio system: a Raspberry Pi 5 connected
 
 The problem? After running speaker cables to every room and connecting them to the amplifiers, I had no idea which speaker was connected to which amplifier channel. Walking around the house with a laptop, playing test tones, and manually noting down "amp2 channel 5 = kitchen left" for 24 speakers is tedious and error-prone.
 
-What started as a simple speaker identification tool grew from there: I needed ALSA configuration to combine mono channels into stereo room pairs (sometimes across different amplifiers), Snapcast configuration for multiroom streaming with per-room Spotify and AirPlay endpoints, persistent USB device naming so configurations survive reboots, and automatic power management to switch off the amplifiers when idle.
+What started as a simple speaker identification tool grew from there: I needed ALSA configuration to combine mono channels into stereo room pairs (sometimes across different amplifiers), persistent USB device naming so configurations survive reboots, and automatic power management to switch off the amplifiers when idle.
 
-This tooling handles all of that: interactive speaker identification with spoken announcements, automatic generation of ALSA and Snapcast configs, one-shot deployment, and relay-based power management.
+This tooling handles all of that: interactive speaker identification with spoken announcements, automatic generation of ALSA configs, sendspin service management for lox-audioserver, and GPIO-based per-amp power management.
 
 While originally built for Wondom GAB8 amplifiers, the tool is device-agnostic and works with any multi-channel USB audio device that exposes individual channels via ALSA.[^1]
 
@@ -27,9 +28,10 @@ While originally built for Wondom GAB8 amplifiers, the tool is device-agnostic a
 - ALSA utilities (`aplay`, `speaker-test`)
 - `espeak-ng` for TTS announcements during identification (`sudo apt install espeak-ng`)
 - Multi-channel USB audio amplifiers with per-channel ALSA routing pre-configured (`amp1_ch1` through `amp*_ch8`)
-- Snapcast server and client (`snapserver`, `snapclient`) for multiroom streaming
-- Optional: `librespot` for Spotify Connect
-- Optional: `crelay` for automatic amplifier power management via USB relay
+- Docker for lox-audioserver
+- `sendspin` for lox-audioserver audio playback (`pip install --user --break-system-packages sendspin`)
+- `libportaudio2` for sendspin audio output
+- `gpiod` for GPIO amplifier power control (`sudo apt install gpiod`)
 
 ### AirPlay 2 Support
 
@@ -124,55 +126,45 @@ Review the generated config, then install:
 sudo cp asound.conf /etc/asound.conf
 ```
 
-### 3. Generate Snapcast Configuration
+### 3. Enable Sendspin Services
 
 ```bash
-python3 generate_snapserver_conf.py > snapserver.conf
-sudo cp snapserver.conf /etc/snapserver.conf
-sudo systemctl restart snapserver
-```
-
-### 4. Install Snapcast Client Services
-
-Install the systemd template service for snapcast clients:
-
-```bash
-sudo cp services/snapclient@.service /etc/systemd/system/
+# Install service template
+sudo cp services/sendspin@.service /etc/systemd/system/
 sudo systemctl daemon-reload
-```
 
-Enable and start a client for each room:
-
-```bash
-# Enable clients for all configured rooms
-for room in $(python3 -c "import json; print(' '.join(json.load(open('speaker_config.json'))['rooms'].keys()))"); do
-    sudo systemctl enable --now snapclient@room_${room}.service
-done
-
-# Or enable individual rooms manually
-sudo systemctl enable --now snapclient@room_living_room.service
-sudo systemctl enable --now snapclient@room_kitchen.service
+# Enable for each room
+sudo systemctl enable --now sendspin@room_kitchen sendspin@room_living ...
 ```
 
 Check client status:
 
 ```bash
-systemctl status 'snapclient@*'
+systemctl status 'sendspin@*'
 ```
 
-### 5. Install Amplifier Power Manager (Optional)
+### 4. Install Amplifier Power Manager (Optional)
 
-The `powermanager/` folder contains a service that automatically switches the amplifier on/off via a USB relay based on ALSA activity. This saves power when no audio is playing.
+The `powermanager/` folder contains a service that controls each amplifier independently via GPIO SHDN (shutdown) pins. This saves power when no audio is playing while keeping USB/ALSA connections alive.
 
 **Requirements:**
-- USB relay controlled via `crelay` (e.g., Conrad/Sainsmart USB relay board)
-- Install crelay: https://github.com/ondrej1024/crelay
+- `gpiod` package for GPIO control
+- `ampctl` CLI installed to `/usr/local/bin/` (see `ampctl` in repo)
+- GPIO wiring from Pi header to GAB8 SHDN pins
+
+**GPIO Pin Assignment:**
+
+| Amp  | GPIO | Pi Pin |
+|------|------|--------|
+| amp1 | 27   | 13     |
+| amp2 | 22   | 15     |
+| amp3 | 17   | 11     |
 
 **How it works:**
-- Monitors `/proc/asound/cardX/pcm*/sub*/status` for RUNNING state
-- Turns relay ON immediately when audio starts
-- Turns relay OFF after 5 minutes (300s) of inactivity
-- Polls every 50ms for responsive switching
+- Samples `hw_ptr` twice (0.2s apart) to detect actual audio flow per card
+- Enables amp immediately when audio starts
+- Disables amp after 60s of inactivity
+- Each amp controlled independently (no all-or-nothing relay)
 
 **Installation:**
 
@@ -181,11 +173,9 @@ The `powermanager/` folder contains a service that automatically switches the am
 sudo cp powermanager/powermanager.sh /usr/local/bin/
 sudo chmod +x /usr/local/bin/powermanager.sh
 
-# Edit the script to match your setup
-sudo nano /usr/local/bin/powermanager.sh
-# - CARDS: ALSA card numbers to monitor (check with: cat /proc/asound/cards)
-# - RELAY_ON_CMD / RELAY_OFF_CMD: commands for your relay
-# - IDLE_TIMEOUT: seconds before power off (default: 300)
+# Install ampctl
+sudo cp ampctl /usr/local/bin/
+sudo chmod +x /usr/local/bin/ampctl
 
 # Install and enable the service
 sudo cp powermanager/powermanager.service /etc/systemd/system/
@@ -200,7 +190,7 @@ systemctl status powermanager
 journalctl -u powermanager -f
 ```
 
-### 6. Test Playback
+### 5. Test Playback
 
 ```bash
 aplay -D room_living_room test.wav
@@ -243,18 +233,6 @@ Speaker mappings are stored in `speaker_config.json`:
     "eg": { "name": "Erdgeschoss" },
     "main": { "name": "Main Rooms" },
     "alle": { "name": "Überall", "include_all": true }
-  },
-  "snapcast": {
-    "server": "localhost",
-    "streams": {
-      "spotify": { "type": "librespot", "name": "Spotify", "bitrate": 320 },
-      "airplay": { "type": "airplay", "name": "AirPlay", "port": 7000 },
-      "default": { "type": "pipe", "path": "/tmp/snapfifo", "sampleformat": "48000:16:2" }
-    },
-    "stream_targets": {
-      "spotify": { "zones": ["alle"] },
-      "airplay": { "zones": ["eg"] }
-    }
   }
 }
 ```
@@ -273,7 +251,7 @@ The tool handles stereo pairs split across different amplifiers. For example, if
 
 ## Zones
 
-Rooms can belong to multiple zones (tag-based, not hierarchical). Zones are used by Snapcast to group rooms for streaming - they are not managed by ALSA. The special zone `alle` with `include_all: true` automatically includes all rooms.
+Rooms can belong to multiple zones (tag-based, not hierarchical). Zones are managed in lox-audioserver for streaming purposes. The special zone `alle` with `include_all: true` automatically includes all rooms.
 
 ## Web Interface
 
@@ -308,12 +286,12 @@ Access at `http://<hostname>:8080`
 
 | Page | Description |
 |------|-------------|
-| **Dashboard** | Overview of rooms, zones, streams, amplifiers with quick test buttons |
-| **Amplifiers** | View all amplifier channels, see room assignments, test individual channels (chime or TTS) |
+| **Dashboard** | Overview of rooms, zones, amplifiers with quick test buttons |
+| **Amplifiers** | Per-amp power control, view channel assignments, test individual channels (chime or TTS) |
 | **Rooms** | Manage rooms, adjust per-speaker volume, test left/right/stereo |
-| **Zones & Streams** | Create/delete zones, assign rooms to zones, toggle Spotify/AirPlay per zone |
-| **Playback** | View Snapcast status (streams, groups, connected clients) |
-| **Settings** | Global volume limit, amplifier power control (relay), deploy configuration, service status |
+| **Zones** | Create/delete zones, assign rooms to zones |
+| **Sendspin** | View sendspin client status for each room |
+| **Settings** | Global volume limit, deploy configuration, service status |
 
 ### API
 
@@ -323,6 +301,6 @@ REST API available at `/api/`. Key endpoints:
 - `POST /api/test/channel` - Test amplifier channel (chime/TTS)
 - `POST /api/test/room` - Test room playback
 - `POST /api/deploy` - Deploy configuration
-- `GET /api/system/powermanager` - Relay state and audio activity
-- `POST /api/system/relay` - Control amplifier power
-- `GET /api/snapcast/status` - Snapcast server status
+- `GET /api/system/powermanager` - Per-amp power state and audio activity
+- `POST /api/system/amp` - Control individual amplifier power (GPIO)
+- `GET /api/system/sendspin` - Sendspin client status for all rooms

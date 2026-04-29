@@ -8,8 +8,6 @@ Multiroom Audio Tooling - provides the **ALSA configuration layer** for multi-ch
 
 **Primary use case**: Configuration layer for [lox-audioserver](https://github.com/lox-audioserver/lox-audioserver), which handles multiroom audio streaming, Spotify/AirPlay integration, and Loxone home automation. The sendspin clients connect to lox-audioserver and play audio through the ALSA devices configured by this tooling.
 
-**Legacy/Optional**: Snapcast support is retained for standalone multiroom setups without Loxone integration.
-
 Originally built for Wondom GAB8 amplifiers but works with any multi-channel USB audio device.
 
 ## Architecture
@@ -27,7 +25,7 @@ Originally built for Wondom GAB8 amplifiers but works with any multi-channel USB
 │  - Bridges Loxone ↔ Audio                                           │
 │  - Spotify Connect, AirPlay, TuneIn                                 │
 │  - Zone/room management                                             │
-│  - Relay control for amplifier power (via crelay)                   │
+│  - Zone/volume management via web UI                               │
 │  - Sendspin server (ws://localhost:7090/sendspin)                   │
 └─────────────────────────────────────────────────────────────────────┘
                                    │
@@ -72,7 +70,7 @@ Originally built for Wondom GAB8 amplifiers but works with any multi-channel USB
 - Loxone home automation integration
 - Zone and group management
 - Volume control per zone
-- Relay control for amplifier power (replaces powermanager)
+- Zone/volume management
 - Web admin interface at http://localhost:7090
 
 ## Directory Structure
@@ -87,11 +85,11 @@ Originally built for Wondom GAB8 amplifiers but works with any multi-channel USB
 │   └── 99-fernseher.rules   # udev rules for TV audio input
 ├── services/
 │   ├── sendspin@.service    # Systemd template for sendspin clients (PRIMARY)
-│   ├── amp-volume.service   # Sets ALSA mixer levels to 100% at boot
-│   └── snapclient@.service  # Systemd template for snapclients (LEGACY)
-├── powermanager/            # LEGACY - being replaced by lox-audioserver
-│   ├── powermanager.sh      # Auto relay control based on ALSA activity
+│   └── amp-volume.service   # Sets ALSA mixer levels to 100% at boot
+├── powermanager/
+│   ├── powermanager.sh      # Auto GPIO SHDN control based on ALSA activity
 │   └── powermanager.service # Systemd service for power manager
+├── ampctl                   # CLI for per-amp GPIO power control (installed to /usr/local/bin/)
 ├── lox-audioserver/         # Docker setup (not in git, local only)
 │   ├── compose.yaml         # Docker compose for lox-audioserver
 │   └── data/                # lox-audioserver configuration and data
@@ -104,17 +102,12 @@ Originally built for Wondom GAB8 amplifiers but works with any multi-channel USB
     │   └── pages.py         # HTML page routes
     ├── services/
     │   ├── config.py        # Configuration file CRUD operations
-    │   ├── audio.py         # TTS and chime playback
-    │   └── snapcast.py      # Snapcast JSON-RPC client (legacy)
+    │   └── audio.py         # TTS and chime playback
     ├── templates/           # Jinja2 HTML templates
     └── static/
         ├── css/style.css    # Styling
         ├── js/app.js        # Toast notifications
         └── sounds/          # Test chime sound
-
-# Legacy (Snapcast-based, optional)
-├── generate_snapserver_conf.py  # Generates Snapcast server config
-└── deploy_config.py             # One-shot deployment for Snapcast setup
 ```
 
 ## Quick Start (lox-audioserver Setup)
@@ -183,18 +176,31 @@ services:
       - /dev/hidraw1:/dev/hidraw1
       - /dev/hidraw2:/dev/hidraw2
       - /dev/hidraw3:/dev/hidraw3
-      - /dev/bus/usb:/dev/bus/usb  # For crelay USB relay control
 ```
 
 Key ports (all on host network):
 - **7090** - Admin web UI and sendspin WebSocket server
-- **1704** - Built-in Snapcast-compatible streaming (conflicts with standalone snapserver)
 
-### Relay Control
+### Amplifier Power Control
 
-lox-audioserver has crelay built-in for amplifier power control. The USB relay device is passed through to the container. Configure relay behavior in the lox-audioserver web UI.
+Amplifier power is controlled via GPIO SHDN (shutdown) pins on the Raspberry Pi, not USB relay. Each amp has its own GPIO pin:
 
-Note: The relay uses inverted logic (NC wiring) - relay ON = amplifiers OFF. Consider rewiring to NO terminals for intuitive control.
+| Amp  | GPIO | Pin |
+|------|------|-----|
+| amp1 | 27   | 13  |
+| amp2 | 22   | 15  |
+| amp3 | 17   | 11  |
+
+Use `ampctl` CLI:
+```bash
+ampctl status          # Show all amp power states
+ampctl on amp1         # Enable amp1
+ampctl off amp2        # Disable amp2
+ampctl on              # Enable all amps
+ampctl off             # Disable all amps
+```
+
+The `powermanager` service automatically enables/disables amps based on audio activity by sampling `hw_ptr` twice (0.2s apart) to detect actual audio flow. No cooldown needed since USB stays connected.
 
 ## Configuration File (v2.0)
 
@@ -212,22 +218,22 @@ The config file `speaker_config.json` defines the ALSA layer:
   "rooms": {
     "kitchen": { "name": "Kitchen", "left": "kitchen_left", "right": "kitchen_right" }
   },
-  "zones": { ... }  // Used by legacy Snapcast setup
+  "zones": { ... }  // Managed in lox-audioserver
 }
 ```
 
-The zones and Snapcast-related config are ignored when using lox-audioserver (zones are managed in lox-audioserver instead).
+Zones are managed in lox-audioserver, not in this config file.
 
 ## Web Interface
 
 The web UI at http://localhost:8080 provides:
 
 - **Dashboard** - Overview of rooms and amplifiers
-- **Amplifiers** - Test individual channels (chime or TTS)
+- **Amplifiers** - Per-amp power control, test individual channels (chime or TTS)
 - **Rooms** - Test left/right/stereo, adjust per-speaker volume
-- **Settings** - Relay control, service status, deploy configuration
-
-Note: Playback and Zones pages are Snapcast-specific (legacy).
+- **Zones** - Create/delete zones, assign rooms to zones
+- **Sendspin** - View sendspin client status for each room
+- **Settings** - Global volume, deploy configuration, service status
 
 ## Commands
 
@@ -251,10 +257,12 @@ journalctl -u 'sendspin@room_kitchen' -f
 sudo docker logs lox-audioserver -f
 sudo docker restart lox-audioserver
 
-# Relay control (from host)
-crelay -i          # Show relay status
-crelay 1 on        # Relay on (amps OFF with NC wiring)
-crelay 1 off       # Relay off (amps ON with NC wiring)
+# Amplifier power control (GPIO SHDN)
+ampctl status              # Show all amp power states
+ampctl on amp1             # Enable specific amp
+ampctl off amp2            # Disable specific amp
+ampctl on                  # Enable all amps
+ampctl off                 # Disable all amps
 ```
 
 ## Key Design Considerations
@@ -289,7 +297,7 @@ speaker-test -D plughw:amp1 -c 8 -t sine -s 5  # Channel 5 on amp1
   - Current version: 5.9.0 (as of 2026-04)
   - Upgrade: `pip install --user --break-system-packages --upgrade sendspin aiosendspin`
 - `libportaudio2` for sendspin audio output
-- `crelay` for USB relay control (optional, can use lox-audioserver's built-in)
+- `gpiod` for GPIO amplifier power control via SHDN pins
 
 ## Troubleshooting
 
@@ -299,7 +307,7 @@ speaker-test -D plughw:amp1 -c 8 -t sine -s 5  # Channel 5 on amp1
 2. Check lox-audioserver: `sudo docker logs lox-audioserver`
 3. Test direct ALSA: `speaker-test -D room_kitchen -c 2 -t sine`
 4. Check ALSA mixer levels: `amixer -c amp1 sget PCM` (should be 100%)
-5. Check relay/amplifier power: `crelay -i`
+5. Check amplifier power: `ampctl status`
 
 ### Sendspin connection errors
 
@@ -402,21 +410,3 @@ Volume values in `speaker_config.json` are percentages (0-100) of the `global.ma
 
 For full volume output, set speaker volumes to 100 and adjust `max_volume` as needed.
 
-## Legacy: Snapcast Setup
-
-For standalone multiroom without Loxone, Snapcast can still be used:
-
-```bash
-# Generate Snapcast config
-python3 generate_snapserver_conf.py > snapserver.conf
-sudo cp snapserver.conf /etc/snapserver.conf
-
-# Enable services (uses port 1714 to avoid lox-audioserver conflict)
-sudo systemctl enable --now snapserver
-sudo systemctl enable --now snapclient@room_kitchen ...
-
-# Re-enable with:
-sudo systemctl enable --now snapserver 'snapclient@room_*'
-```
-
-Note: If running alongside lox-audioserver, snapserver uses port 1714 (configured in `/etc/snapserver.conf` under `[stream]` section).

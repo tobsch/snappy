@@ -122,40 +122,6 @@ class ConfigService:
             return True
         return False
 
-    # Streams
-    def get_streams(self) -> dict:
-        return self.config.get('snapcast', {}).get('streams', {})
-
-    def get_stream(self, stream_id: str) -> dict | None:
-        return self.get_streams().get(stream_id)
-
-    def update_stream(self, stream_id: str, data: dict) -> None:
-        if 'snapcast' not in self.config:
-            self.config['snapcast'] = {}
-        if 'streams' not in self.config['snapcast']:
-            self.config['snapcast']['streams'] = {}
-        self.config['snapcast']['streams'][stream_id] = data
-        self.save()
-
-    def delete_stream(self, stream_id: str) -> bool:
-        if stream_id in self.config.get('snapcast', {}).get('streams', {}):
-            del self.config['snapcast']['streams'][stream_id]
-            self.save()
-            return True
-        return False
-
-    # Stream targets
-    def get_stream_targets(self) -> dict:
-        return self.config.get('snapcast', {}).get('stream_targets', {})
-
-    def update_stream_targets(self, stream_id: str, data: dict) -> None:
-        if 'snapcast' not in self.config:
-            self.config['snapcast'] = {}
-        if 'stream_targets' not in self.config['snapcast']:
-            self.config['snapcast']['stream_targets'] = {}
-        self.config['snapcast']['stream_targets'][stream_id] = data
-        self.save()
-
     # Global settings
     def get_global(self) -> dict:
         return self.config.get('global', {})
