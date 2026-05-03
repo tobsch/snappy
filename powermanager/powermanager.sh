@@ -4,96 +4,152 @@
 # Controls each amp independently via GPIO shutdown pins.
 # ALSA/USB stays connected — only the amp output stage is toggled.
 #
-# Detection: samples hw_ptr twice (0.2s apart) to check if audio is
-# actually flowing, same principle as the sendspin watchdog.
+# Detection: samples each sendspin process's WebSocket bytes_received over a
+# short window. Real PCM playback is ~288 KB/s; idle/keepalive is <1 KB/s.
+# This avoids the dmix false-positive where /proc/asound/.../hw_ptr keeps
+# advancing even when no audio is being written.
+#
+# Hardware state is re-read from `ampctl status` each iteration so that
+# external state changes (manual ampctl, power glitches) self-heal.
 
 CARDS=("amp1" "amp2" "amp3")
+SPEAKER_CONFIG="/home/tobias/multiroom-tooling/speaker_config.json"
+SAMPLE_WINDOW=2          # seconds between bytes_received samples
+ACTIVE_THRESHOLD=50000   # >50KB/2s = real audio (active PCM is ~576KB/2s)
+IDLE_TIMEOUT=60          # seconds of inactivity before shutting an amp down
 
-# Idle timeout per amp before shutting down (seconds)
-IDLE_TIMEOUT=60
-
-# Track state per amp
-declare -A amp_on
 declare -A last_active_ts
 
 log() {
   echo "[powermanager] $(date '+%Y-%m-%d %H:%M:%S') $*"
 }
 
-amp_enable() {
-  ampctl on "$1" >/dev/null
+# Build room → amps mapping from speaker_config.json.
+# Echoes lines: "<room_id> <amp1> [amp2] ..."
+load_room_amp_map() {
+  python3 - "$SPEAKER_CONFIG" <<'PY'
+import json, sys
+c = json.load(open(sys.argv[1]))
+for rid, room in c.get('rooms', {}).items():
+    amps = set()
+    for side in ('left', 'right', 'sub'):
+        spk_id = room.get(side)
+        if spk_id:
+            spk = c.get('speakers', {}).get(spk_id, {})
+            if spk.get('amplifier'):
+                amps.add(spk['amplifier'])
+    if amps:
+        print(rid + ' ' + ' '.join(sorted(amps)))
+PY
 }
 
-amp_disable() {
-  ampctl off "$1" >/dev/null
+# Echo "<room_id> <pid>" for each running sendspin@room_*.service
+list_sendspin_pids() {
+  systemctl list-units --no-legend --state=running 'sendspin@*' 2>/dev/null \
+    | awk '{print $1}' \
+    | while read -r unit; do
+        pid=$(systemctl show -p MainPID --value "$unit" 2>/dev/null)
+        [[ -z "$pid" || "$pid" == "0" ]] && continue
+        # unit is sendspin@room_xxx.service → room id is "xxx"
+        rid=$(echo "$unit" | sed -E 's/^sendspin@room_(.*)\.service$/\1/')
+        echo "$rid $pid"
+      done
 }
 
-# Check if audio is flowing on a specific card by sampling hw_ptr twice
-is_card_active() {
-  local card=$1
-  local status_file status hw_ptr1 hw_ptr2
+# Get bytes_received for a sendspin pid's WebSocket to localhost:7090
+ws_bytes_received() {
+  local pid=$1
+  ss -tpi dst 127.0.0.1:7090 2>/dev/null \
+    | grep -A1 "pid=$pid," \
+    | grep -oP 'bytes_received:\K[0-9]+'
+}
 
-  for status_file in /proc/asound/${card}/pcm*/sub*/status; do
-    [ -e "$status_file" ] || continue
-    read -r status < "$status_file" 2>/dev/null || continue
-    [[ "$status" == "state: RUNNING" ]] || continue
+# Get current amp state via ampctl. Echoes "<amp> <on|off>" lines.
+read_amp_states() {
+  ampctl status 2>/dev/null \
+    | python3 -c "import json,sys; d=json.load(sys.stdin); [print(k,v) for k,v in d.items()]" 2>/dev/null
+}
 
-    # Sample hw_ptr twice to detect audio flow
-    hw_ptr1=$(awk '/hw_ptr/{print $3}' "$status_file" 2>/dev/null)
-    [[ -n "$hw_ptr1" ]] || continue
+amp_enable()  { ampctl on  "$1" >/dev/null 2>&1; }
+amp_disable() { ampctl off "$1" >/dev/null 2>&1; }
 
-    sleep 0.2
+# ---- main ----
 
-    hw_ptr2=$(awk '/hw_ptr/{print $3}' "$status_file" 2>/dev/null)
-    [[ -n "$hw_ptr2" ]] || continue
+log "Starting powermanager daemon (bytes-flow mode, cards: ${CARDS[*]})"
 
-    if (( hw_ptr2 > hw_ptr1 )); then
-      return 0  # Audio is flowing
+# Load room → amps map once at startup. Re-read on SIGHUP.
+declare -A room_amps
+trap 'log "SIGHUP: reloading room→amp map"; reload_map=1' HUP
+
+reload_map=1
+while true; do
+  if (( reload_map )); then
+    declare -A room_amps=()
+    while read -r line; do
+      rid=$(echo "$line" | awk '{print $1}')
+      amps=$(echo "$line" | cut -d' ' -f2-)
+      room_amps[$rid]="$amps"
+    done < <(load_room_amp_map)
+    log "Loaded room→amp map: ${#room_amps[@]} rooms"
+    reload_map=0
+  fi
+
+  # Snapshot 1: bytes_received per running sendspin
+  declare -A pid_room
+  declare -A bytes1
+  while read -r rid pid; do
+    [[ -z "$rid" || -z "$pid" ]] && continue
+    pid_room[$pid]=$rid
+    b=$(ws_bytes_received "$pid")
+    bytes1[$pid]=${b:-0}
+  done < <(list_sendspin_pids)
+
+  sleep "$SAMPLE_WINDOW"
+
+  # Snapshot 2 + delta → which rooms have real audio flowing
+  declare -A active_amps
+  for pid in "${!bytes1[@]}"; do
+    b2=$(ws_bytes_received "$pid")
+    b2=${b2:-0}
+    delta=$(( b2 - ${bytes1[$pid]} ))
+    if (( delta > ACTIVE_THRESHOLD )); then
+      rid=${pid_room[$pid]}
+      for amp in ${room_amps[$rid]}; do
+        active_amps[$amp]=1
+      done
     fi
   done
 
-  return 1  # No audio on this card
-}
+  # Read actual hardware state (self-heals from external changes)
+  declare -A amp_state
+  while read -r amp state; do
+    amp_state[$amp]=$state
+  done < <(read_amp_states)
 
-log "Starting powermanager daemon (GPIO mode, cards: ${CARDS[*]})"
-
-# Initialize: check each amp and set state
-for card in "${CARDS[@]}"; do
-  if is_card_active "$card"; then
-    log "$card: audio active at startup - enabling"
-    amp_enable "$card"
-    amp_on[$card]=true
-    last_active_ts[$card]=$(date +%s)
-  else
-    log "$card: no audio at startup - disabling"
-    amp_disable "$card"
-    amp_on[$card]=false
-  fi
-done
-
-while true; do
   now_ts=$(date +%s)
-
   for card in "${CARDS[@]}"; do
-    if is_card_active "$card"; then
-      last_active_ts[$card]=$now_ts
+    is_active=${active_amps[$card]:-0}
+    state=${amp_state[$card]:-unknown}
 
-      if [[ "${amp_on[$card]}" != "true" ]]; then
-        log "$card: audio detected - enabling"
+    if (( is_active )); then
+      last_active_ts[$card]=$now_ts
+      if [[ "$state" != "on" ]]; then
+        log "$card: audio detected (state was '$state') - enabling"
         amp_enable "$card"
-        amp_on[$card]=true
       fi
     else
-      if [[ "${amp_on[$card]}" == "true" ]]; then
+      if [[ "$state" == "on" ]]; then
         local_last=${last_active_ts[$card]:-0}
-        if (( now_ts - local_last >= IDLE_TIMEOUT )); then
+        if (( local_last == 0 )); then
+          # First seen idle this session — start the clock now so we don't
+          # immediately disable an amp the user just turned on.
+          last_active_ts[$card]=$now_ts
+        elif (( now_ts - local_last >= IDLE_TIMEOUT )); then
           log "$card: no audio for ${IDLE_TIMEOUT}s - disabling"
           amp_disable "$card"
-          amp_on[$card]=false
+          last_active_ts[$card]=0
         fi
       fi
     fi
   done
-
-  sleep 1
 done
