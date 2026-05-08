@@ -21,7 +21,6 @@ async def dashboard(request: Request):
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "rooms": config_svc.get_rooms(),
-        "zones": config_svc.get_zones(),
         "amplifiers": config_svc.get_amplifiers(),
     })
 
@@ -45,39 +44,6 @@ async def amplifiers(request: Request):
         "amps": amps,
         "speakers": config_svc.get_speakers(),
         "rooms": config_svc.get_rooms(),
-    })
-
-
-@router.get("/zones", response_class=HTMLResponse)
-async def zones(request: Request):
-    """Zone management page"""
-    config_svc = get_config_service(request)
-    templates = request.app.state.templates
-
-    # Enrich zone data with member rooms
-    zones_data = []
-    for zone_id, zone in config_svc.get_zones().items():
-        member_rooms = config_svc.get_rooms_in_zone(zone_id)
-        rooms_info = []
-        for room_id in member_rooms:
-            room = config_svc.get_room(room_id)
-            if room:
-                rooms_info.append({
-                    'id': room_id,
-                    'name': room.get('name', room_id),
-                })
-
-        zones_data.append({
-            'id': zone_id,
-            'name': zone.get('name', zone_id),
-            'include_all': zone.get('include_all', False),
-            'rooms': rooms_info,
-        })
-
-    return templates.TemplateResponse("zones.html", {
-        "request": request,
-        "zones": zones_data,
-        "all_rooms": config_svc.get_rooms(),
     })
 
 

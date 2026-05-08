@@ -11,10 +11,6 @@
         <div class="stat-label">Rooms</div>
     </div>
     <div class="stat-card">
-        <div class="stat-value">{{ zones|length }}</div>
-        <div class="stat-label">Zones</div>
-    </div>
-    <div class="stat-card">
         <div class="stat-value">{{ amplifiers|length }}</div>
         <div class="stat-label">Amplifiers</div>
     </div>
@@ -51,11 +47,6 @@
         {% for room_id, room in rooms.items() %}
         <div class="room-card">
             <div class="room-name">{{ room.name or room_id }}</div>
-            <div class="room-zones">
-                {% for zone_id in room.zones %}
-                <span class="badge">{{ zones[zone_id].name if zone_id in zones else zone_id }}</span>
-                {% endfor %}
-            </div>
             <div class="room-actions">
                 <button class="btn btn-small" onclick="testRoom('{{ room_id }}')">
                     Test
