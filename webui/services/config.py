@@ -50,6 +50,19 @@ class ConfigService:
     def get_amplifier(self, amp_id: str) -> dict | None:
         return self.get_amplifiers().get(amp_id)
 
+    def add_amplifier(self, amp_id: str, data: dict) -> None:
+        if "amplifiers" not in self.config:
+            self.config["amplifiers"] = {}
+        self.config["amplifiers"][amp_id] = data
+        self.save()
+
+    def delete_amplifier(self, amp_id: str) -> bool:
+        if amp_id in self.config.get("amplifiers", {}):
+            del self.config["amplifiers"][amp_id]
+            self.save()
+            return True
+        return False
+
     # Speakers
     def get_speakers(self) -> dict:
         return self.config.get('speakers', {})

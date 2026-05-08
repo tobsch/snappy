@@ -1638,3 +1638,80 @@ body.tap-selecting .room-slot { /* keep slots clickable */ }
     .jacks-row { justify-content: center; }
     .room-slots { grid-template-columns: 1fr; }
 }
+
+/* Offline amp badge — when /proc/asound has no card matching the configured ID */
+.amp-module.offline .module-faceplate {
+    opacity: 0.55;
+    filter: grayscale(0.6);
+}
+.offline-badge {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--danger);
+    color: white;
+    font-size: 0.55rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+/* + Add Amplifier button at end of rack-body */
+.add-amp-btn {
+    margin-top: 4px;
+    background: transparent;
+    border: 1px dashed #475569;
+    color: #94a3b8;
+    border-radius: 8px;
+    padding: 0.6rem 1rem;
+    cursor: pointer;
+    font-size: 0.8rem;
+    letter-spacing: 0.04em;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.add-amp-btn:hover { border-color: var(--primary); color: white; background: rgba(59,130,246,0.10); }
+
+/* Add-amp modal: list of detected cards */
+.addamp-section {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--gray-500);
+    margin: 0.75rem 0 0.4rem;
+}
+.addamp-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.addamp-row {
+    background: var(--gray-50);
+    border: 1px solid var(--gray-200);
+    border-radius: 6px;
+    padding: 0.6rem;
+}
+.addamp-row.dim { opacity: 0.6; }
+.addamp-name { font-weight: 600; font-size: 0.9rem; }
+.addamp-path {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.7rem;
+    color: var(--gray-500);
+    margin: 0.1rem 0 0.4rem;
+    word-break: break-all;
+}
+.addamp-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+}
+.addamp-form label {
+    display: flex;
+    flex-direction: column;
+    font-size: 0.7rem;
+    color: var(--gray-600);
+}
+.addamp-form input {
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--gray-300);
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+.addamp-form input[name="amp_id"] { width: 90px; }
+.addamp-form input[name="channels"] { width: 60px; }

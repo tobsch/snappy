@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from services.config import ConfigService
 from services.audio import AudioService
 from services.apply import apply_config
+from services.audio_cards import detect_cards, annotate_configured_amps
 
 router = APIRouter(tags=["api"])
 
@@ -92,6 +93,61 @@ async def update_speaker(request: Request, speaker_id: str, data: SpeakerUpdate)
     config_svc = get_config_service(request)
     config_svc.update_speaker(speaker_id, data.model_dump())
     return {"status": "ok", "speaker_id": speaker_id}
+
+
+# === Amp discovery / management ===
+
+@router.get("/system/audio-cards")
+async def audio_cards(request: Request):
+    """List all ALSA cards on the system.
+
+    Each entry indicates whether it's already configured as an amp and whether
+    it looks like a USB audio device that could be added.
+    """
+    config_svc = get_config_service(request)
+    cards = detect_cards()
+    annotated = annotate_configured_amps(cards, config_svc.get_amplifiers())
+    return {"cards": annotated}
+
+
+class AmpAdd(BaseModel):
+    card: str | None = None     # ALSA short id (e.g. 'amp4'); defaults to amp_id
+    channels: int = 8
+
+
+@router.post("/config/amps/{amp_id}")
+async def add_amp(request: Request, amp_id: str, data: AmpAdd):
+    """Register a new amplifier in the config.
+
+    Does NOT write a udev rule — that's a system-level concern. If you want
+    persistent ALSA naming for a freshly plugged-in amp, also add the matching
+    rule to devconfig/99-wondom-gab8.rules and reload udev.
+    """
+    config_svc = get_config_service(request)
+    if amp_id in config_svc.get_amplifiers():
+        raise HTTPException(status_code=409, detail=f"Amp {amp_id!r} already exists")
+    if not amp_id.replace("_", "").isalnum():
+        raise HTTPException(status_code=400, detail="amp_id must be alphanumeric/underscore")
+    config_svc.add_amplifier(amp_id, {
+        "card": data.card or amp_id,
+        "channels": int(data.channels),
+    })
+    return {"status": "ok", "amp_id": amp_id}
+
+
+@router.delete("/config/amps/{amp_id}")
+async def delete_amp(request: Request, amp_id: str):
+    """Remove an amplifier. Refuses if any speaker still references it."""
+    config_svc = get_config_service(request)
+    used_by = [s for s, sp in config_svc.get_speakers().items() if sp.get("amplifier") == amp_id]
+    if used_by:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Amp {amp_id!r} still in use by speakers: {', '.join(used_by)}",
+        )
+    if not config_svc.delete_amplifier(amp_id):
+        raise HTTPException(status_code=404, detail="Amp not found")
+    return {"status": "ok"}
 
 
 # === Test endpoints ===

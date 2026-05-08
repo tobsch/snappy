@@ -80,7 +80,7 @@
         </div>
 
         {% for amp in amps %}
-        <div class="rack-module amp-module" data-amp="{{ amp.id }}">
+        <div class="rack-module amp-module {% if not amp.online %}offline{% endif %}" data-amp="{{ amp.id }}">
             <div class="module-faceplate">
                 <div class="screw screw-tl"></div>
                 <div class="screw screw-bl"></div>
@@ -89,7 +89,9 @@
 
                 <div class="module-meta">
                     <div class="module-label">{{ amp.id }}</div>
-                    <div class="module-sub">{{ amp.card }}</div>
+                    <div class="module-sub" title="{{ amp.usb_path or 'not detected' }}">
+                        {{ amp.model }}{% if not amp.online %} <span class="offline-badge">offline</span>{% endif %}
+                    </div>
                 </div>
                 <div class="module-power" id="power-{{ amp.id }}">
                     <span class="text-muted">…</span>
@@ -109,9 +111,26 @@
             </div>
         </div>
         {% endfor %}
+
+        <button class="add-amp-btn" onclick="openAddAmpModal()" type="button">
+            + Add Amplifier
+        </button>
     </div>
 
     <svg class="cables-overlay" id="cables-overlay"></svg>
+</div>
+
+<!-- Add amplifier modal -->
+<div id="add-amp-modal" class="modal hidden">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Add amplifier</h3>
+            <button class="btn btn-small" onclick="closeAddAmpModal()" type="button">&times;</button>
+        </div>
+        <div id="add-amp-body">
+            <p class="text-muted">Scanning…</p>
+        </div>
+    </div>
 </div>
 
 <!-- Conflict modal -->
@@ -843,6 +862,101 @@ function createRoom(e) {
 }
 
 // ============================================================
+// Add Amplifier modal — discovers USB audio cards on the system
+// ============================================================
+async function openAddAmpModal() {
+    const modal = document.getElementById('add-amp-modal');
+    const body = document.getElementById('add-amp-body');
+    body.innerHTML = '<p class="text-muted">Scanning system audio cards…</p>';
+    modal.classList.remove('hidden');
+
+    try {
+        const r = await fetch('/api/system/audio-cards');
+        const data = await r.json();
+        const usable = (data.cards || []).filter(c => c.is_usb_audio && !c.is_skip);
+        const candidates = usable.filter(c => !c.configured_as);
+        const configured = usable.filter(c => c.configured_as);
+
+        let html = '';
+        if (configured.length) {
+            html += '<h4 class="addamp-section">Already configured</h4><ul class="addamp-list">';
+            for (const c of configured) {
+                html += `<li class="addamp-row dim">
+                    <div class="addamp-name">${escapeHtml(c.id)} <span class="text-muted">— ${escapeHtml(c.description)}</span></div>
+                    <div class="addamp-path">${escapeHtml(c.usb_path || '')}</div>
+                </li>`;
+            }
+            html += '</ul>';
+        }
+
+        if (candidates.length) {
+            html += '<h4 class="addamp-section">Detected, not yet configured</h4><ul class="addamp-list">';
+            for (const c of candidates) {
+                const suggested = nextAmpId();
+                html += `<li class="addamp-row">
+                    <div class="addamp-name">${escapeHtml(c.description)} <span class="text-muted">(card ${escapeHtml(c.id)})</span></div>
+                    <div class="addamp-path">${escapeHtml(c.usb_path || '')}</div>
+                    <form class="addamp-form" onsubmit="submitAddAmp(event, '${escapeHtml(c.id)}')">
+                        <label>ID <input type="text" name="amp_id" value="${escapeHtml(suggested)}" pattern="[a-z0-9_]+" required></label>
+                        <label>Channels <input type="number" name="channels" value="8" min="1" max="32" required></label>
+                        <button type="submit" class="btn btn-primary btn-small">Add</button>
+                    </form>
+                </li>`;
+            }
+            html += '</ul>';
+            html += `<p class="setting-help">Note: persistent ALSA naming (so the new amp keeps its ID across reboots and reconnects) needs a udev rule in <code>devconfig/99-wondom-gab8.rules</code> referencing the USB path above.</p>`;
+        } else if (!configured.length) {
+            html += '<p class="text-muted">No USB audio cards detected.</p>';
+        } else {
+            html += '<p class="text-muted">All detected USB audio cards are already configured.</p>';
+        }
+
+        body.innerHTML = html;
+    } catch (e) {
+        body.innerHTML = `<p class="error">Failed to scan: ${escapeHtml(e.message)}</p>`;
+    }
+}
+
+function closeAddAmpModal() {
+    document.getElementById('add-amp-modal').classList.add('hidden');
+}
+
+function nextAmpId() {
+    // suggest amp<N+1> where N = highest existing amp number, else 1
+    let max = 0;
+    for (const a of AMPS) {
+        const m = a.id.match(/^amp(\d+)$/);
+        if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return `amp${max + 1}`;
+}
+
+async function submitAddAmp(event, cardId) {
+    event.preventDefault();
+    const form = event.target;
+    const amp_id = form.amp_id.value.trim().toLowerCase();
+    const channels = parseInt(form.channels.value, 10);
+    try {
+        const r = await fetch(`/api/config/amps/${amp_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({card: cardId, channels}),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+            showToast(data.detail || 'Failed to add amp', true);
+            return;
+        }
+        showToast(`Added ${amp_id}`);
+        closeAddAmpModal();
+        // Reload to pick up the new amp module
+        setTimeout(() => location.reload(), 400);
+    } catch (e) {
+        showToast('Connection error', true);
+    }
+}
+
+// ============================================================
 // Test buttons — pass current slider values so live volume preview works
 // ============================================================
 function volumeForCell(amp, channel) {
@@ -962,6 +1076,9 @@ document.getElementById('conflict-modal').addEventListener('click', e => {
 });
 document.getElementById('new-room-modal').addEventListener('click', e => {
     if (e.target.id === 'new-room-modal') closeNewRoomModal();
+});
+document.getElementById('add-amp-modal').addEventListener('click', e => {
+    if (e.target.id === 'add-amp-modal') closeAddAmpModal();
 });
 
 // Initial state

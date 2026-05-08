@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from services.config import ConfigService
+from services.audio_cards import detect_cards, find_card_for_amp
 
 router = APIRouter(tags=["pages"])
 
@@ -31,12 +32,17 @@ async def amplifiers(request: Request):
     config_svc = get_config_service(request)
     templates = request.app.state.templates
 
+    cards = detect_cards()
     amps = []
     for amp_id, amp in config_svc.get_amplifiers().items():
+        card = find_card_for_amp(cards, amp_id)
         amps.append({
             "id": amp_id,
             "card": amp.get("card", amp_id),
             "channels": amp.get("channels", 8),
+            "model": (card or {}).get("description") or amp.get("card", amp_id),
+            "usb_path": (card or {}).get("usb_path"),
+            "online": card is not None,
         })
 
     return templates.TemplateResponse("amplifiers.html", {
