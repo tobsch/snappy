@@ -5,11 +5,27 @@
 {% block content %}
 <h1>Amplifiers</h1>
 
+<!-- Pending changes bar -->
+<div id="pending-bar" class="pending-bar hidden">
+    <div class="pending-summary">
+        <span id="pending-count">0 changes</span>
+        <button class="pending-toggle" onclick="togglePendingDetails()" type="button">▾</button>
+    </div>
+    <div class="pending-actions">
+        <button class="btn" onclick="discardChanges()" type="button">Discard</button>
+        <button class="btn btn-primary" id="apply-btn" onclick="applyChanges()" type="button">Apply</button>
+    </div>
+</div>
+<div id="pending-details" class="pending-details hidden"></div>
+
+<!-- Amp panels -->
 <div class="section">
-    <div class="button-group">
-        <button class="btn btn-success" onclick="setAllAmps('on')">All ON</button>
-        <button class="btn btn-danger" onclick="setAllAmps('off')">All OFF</button>
-        <span class="test-mode-toggle" style="margin-left: 1rem;">
+    <div class="amps-toolbar">
+        <div class="button-group">
+            <button class="btn btn-success" onclick="setAllAmps('on')" type="button">All ON</button>
+            <button class="btn btn-danger" onclick="setAllAmps('off')" type="button">All OFF</button>
+        </div>
+        <span class="test-mode-toggle">
             <label>
                 <input type="radio" name="test-mode" value="chime" checked onchange="setTestMode('chime')">
                 Chime
@@ -22,104 +38,646 @@
     </div>
 </div>
 
-{% for amp in amplifiers %}
-<div class="section" id="section-{{ amp.id }}">
+{% for amp in amps %}
+<div class="section amp-section" id="section-{{ amp.id }}">
     <div class="amp-header">
         <h2>{{ amp.id }} <span class="text-muted">({{ amp.card }})</span></h2>
         <div class="amp-power-badge" id="power-{{ amp.id }}">
             <span class="text-muted">...</span>
         </div>
     </div>
-
-    <div class="channel-grid">
-        {% for ch in amp.channels %}
-        <div class="channel-tile {% if ch.assignment %}assigned{% else %}unassigned{% endif %}">
-            <div class="channel-number">{{ ch.number }}</div>
-
-            {% if ch.assignment %}
-            <div class="channel-room">{{ ch.assignment.room_name or '?' }}</div>
-            <div class="channel-position">{{ ch.assignment.position }}</div>
-            {% else %}
-            <div class="channel-room">---</div>
-            {% endif %}
-
-            <div class="channel-buttons">
-                <button class="btn btn-icon test-btn"
-                        data-amp="{{ amp.id }}"
-                        data-channel="{{ ch.number }}"
-                        onclick="testChannel(this)"
-                        title="Play test">
-                    &#9654;
-                </button>
-            </div>
+    <div class="channel-grid" data-amp="{{ amp.id }}">
+        {% for ch in range(1, amp.channels + 1) %}
+        <div class="channel-cell" data-amp="{{ amp.id }}" data-channel="{{ ch }}">
+            <div class="channel-number">{{ ch }}</div>
+            <div class="channel-content"></div>
         </div>
         {% endfor %}
     </div>
 </div>
 {% endfor %}
 
-<script>
-let currentTestMode = 'chime';
+<!-- Rooms section -->
+<div class="section rooms-section">
+    <div class="rooms-header">
+        <h2>Rooms</h2>
+        <button class="btn btn-primary" onclick="openNewRoomModal()" type="button">+ New Room</button>
+    </div>
+    <div class="room-cards" id="room-cards"></div>
+</div>
 
-function setTestMode(mode) {
-    currentTestMode = mode;
+<!-- Replace/swap modal -->
+<div id="conflict-modal" class="modal hidden">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="conflict-title">Replace assignment?</h3>
+            <button class="btn btn-small" onclick="closeConflictModal()" type="button">&times;</button>
+        </div>
+        <p id="conflict-body"></p>
+        <div class="modal-actions">
+            <button class="btn" onclick="closeConflictModal()" type="button">Cancel</button>
+            <button class="btn" id="conflict-swap-btn" onclick="resolveConflict('swap')" type="button">Swap</button>
+            <button class="btn btn-primary" onclick="resolveConflict('replace')" type="button">Replace</button>
+        </div>
+    </div>
+</div>
+
+<!-- New room modal -->
+<div id="new-room-modal" class="modal hidden">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>New room</h3>
+            <button class="btn btn-small" onclick="closeNewRoomModal()" type="button">&times;</button>
+        </div>
+        <form onsubmit="createRoom(event)">
+            <div class="form-group">
+                <label>Display name</label>
+                <input type="text" id="new-room-name" required placeholder="Living Room">
+            </div>
+            <div class="form-group">
+                <label>Room ID</label>
+                <input type="text" id="new-room-id" required placeholder="livingroom" pattern="[a-z0-9_]+">
+                <div class="setting-help">Lowercase, digits, underscore. Used in ALSA device names.</div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="closeNewRoomModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+// ============================================================
+// State
+// ============================================================
+const AMPS = {{ amps | tojson }};
+let speakers = {{ speakers | tojson }};
+let rooms = {{ rooms | tojson }};
+const initialSnapshot = JSON.stringify({speakers, rooms});
+
+let testMode = 'chime';
+let conflictResolution = null;  // pending drop awaiting user decision
+
+// Drag state
+let dragData = null;  // {kind: 'side', roomId, side} or {kind: 'cell', amp, channel}
+
+// Touch / tap-to-place state
+let tapSelection = null;  // {kind: 'side', roomId, side}
+
+// ============================================================
+// Utilities
+// ============================================================
+function setTestMode(m) { testMode = m; }
+
+function isDirty() { return JSON.stringify({speakers, rooms}) !== initialSnapshot; }
+
+function colorForRoom(roomId) {
+    // Stable HSL from a string
+    let h = 0;
+    for (const c of roomId) h = ((h << 5) - h + c.charCodeAt(0)) | 0;
+    return `hsl(${Math.abs(h) % 360}, 60%, 60%)`;
 }
 
-async function testChannel(btn) {
-    const amp = btn.dataset.amp;
-    const channel = parseInt(btn.dataset.channel);
+function speakerForRoomSide(roomId, side) {
+    const room = rooms[roomId];
+    if (!room) return null;
+    const spkId = room[side];
+    if (!spkId) return null;
+    return {id: spkId, ...speakers[spkId]};
+}
 
-    btn.disabled = true;
-    btn.classList.add('loading');
-
-    try {
-        const response = await fetch('/api/test/channel', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                amplifier: amp,
-                channel: channel,
-                type: currentTestMode
-            })
-        });
-
-        if (response.ok) {
-            showToast('Test played');
-        } else {
-            showToast('Playback error', true);
+function findCellAssignment(amp, channel) {
+    // Returns {roomId, side, speakerId} or null
+    for (const [spkId, spk] of Object.entries(speakers)) {
+        if (spk.amplifier === amp && spk.channel === channel) {
+            for (const [rid, r] of Object.entries(rooms)) {
+                for (const side of ['left', 'right', 'sub']) {
+                    if (r[side] === spkId) return {roomId: rid, side, speakerId: spkId};
+                }
+            }
+            // Orphaned speaker (not referenced by any room) — shouldn't happen
+            // but show it so we don't lose it silently
+            return {roomId: null, side: null, speakerId: spkId};
         }
-    } catch (e) {
-        showToast('Connection error', true);
-    } finally {
-        btn.disabled = false;
-        btn.classList.remove('loading');
+    }
+    return null;
+}
+
+function suggestSpeakerId(roomId, side) {
+    // Match existing convention: <room>_<side>
+    return `${roomId}_${side}`;
+}
+
+// ============================================================
+// Rendering
+// ============================================================
+function render() {
+    renderAmpCells();
+    renderRoomCards();
+    renderPendingBar();
+}
+
+function renderAmpCells() {
+    for (const amp of AMPS) {
+        for (let ch = 1; ch <= amp.channels; ch++) {
+            const cell = document.querySelector(`.channel-cell[data-amp="${amp.id}"][data-channel="${ch}"]`);
+            if (!cell) continue;
+            const a = findCellAssignment(amp.id, ch);
+            const content = cell.querySelector('.channel-content');
+            cell.classList.toggle('assigned', !!a);
+            cell.classList.toggle('drop-target', !a);
+            cell.style.removeProperty('--room-color');
+            if (a && a.roomId) {
+                cell.style.setProperty('--room-color', colorForRoom(a.roomId));
+                const spk = speakers[a.speakerId] || {};
+                const vol = spk.volume ?? 100;
+                const room = rooms[a.roomId] || {};
+                content.innerHTML = `
+                    <div class="cell-room">${escapeHtml(room.name || a.roomId)}</div>
+                    <div class="cell-side">${a.side.toUpperCase()}</div>
+                    <div class="cell-vol">
+                        <input type="range" min="0" max="100" value="${vol}"
+                               oninput="onVolumeInput(this, '${a.speakerId}')">
+                        <span class="cell-vol-num">${vol}</span>
+                    </div>
+                    <div class="cell-buttons">
+                        <button class="btn btn-icon test-btn" onclick="testCell('${amp.id}', ${ch})" title="Play test">▶</button>
+                        <button class="btn btn-icon unassign-btn" onclick="unassignCell('${amp.id}', ${ch})" title="Unassign">×</button>
+                    </div>
+                `;
+            } else {
+                content.innerHTML = `<div class="cell-empty">empty</div>`;
+            }
+        }
     }
 }
 
+function renderRoomCards() {
+    const container = document.getElementById('room-cards');
+    const cards = Object.entries(rooms)
+        .sort((a, b) => (a[1].name || a[0]).localeCompare(b[1].name || b[0]))
+        .map(([rid, room]) => {
+            const sides = ['left', 'right'];
+            if (room.sub) sides.push('sub');
+            const haveLeft = !!room.left;
+            const haveRight = !!room.right;
+            const status = (haveLeft && haveRight) ? 'complete'
+                         : (haveLeft || haveRight) ? 'partial' : 'empty';
+            const color = colorForRoom(rid);
+            const handles = sides.map(side => {
+                const placed = !!room[side];
+                return `
+                    <div class="room-handle ${placed ? 'placed' : 'unplaced'}"
+                         draggable="true"
+                         data-room="${rid}"
+                         data-side="${side}"
+                         onclick="onTapHandle('${rid}', '${side}')"
+                         title="Drag to a channel">
+                        <span class="handle-side">${side[0].toUpperCase()}</span>
+                    </div>
+                `;
+            }).join('');
+            const subBtn = room.sub
+                ? `<button class="btn btn-icon" onclick="removeSub('${rid}')" title="Remove sub">−sub</button>`
+                : `<button class="btn btn-icon" onclick="addSub('${rid}')" title="Add subwoofer">+ sub</button>`;
+            return `
+                <div class="room-card" data-room="${rid}" style="--room-color: ${color}">
+                    <div class="room-card-header">
+                        <span class="room-name">${escapeHtml(room.name || rid)}</span>
+                        <span class="room-status status-${status}" title="${status}"></span>
+                    </div>
+                    <div class="room-handles">${handles}</div>
+                    <div class="room-card-actions">
+                        <button class="btn btn-icon" onclick="testRoom('${rid}')" title="Play test">▶</button>
+                        ${subBtn}
+                        <button class="btn btn-icon" onclick="renameRoom('${rid}')" title="Rename">✎</button>
+                        <button class="btn btn-icon" onclick="deleteRoom('${rid}')" title="Delete room">🗑</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    container.innerHTML = cards || '<p class="text-muted">No rooms yet. Click "+ New Room" to get started.</p>';
+}
+
+function renderPendingBar() {
+    const dirty = isDirty();
+    document.getElementById('pending-bar').classList.toggle('hidden', !dirty);
+    if (!dirty) {
+        document.getElementById('pending-details').classList.add('hidden');
+        return;
+    }
+    const changes = computeChanges();
+    document.getElementById('pending-count').textContent =
+        `${changes.length} change${changes.length === 1 ? '' : 's'} pending`;
+    const details = document.getElementById('pending-details');
+    details.innerHTML = changes.map(c => `<div class="pending-line">• ${escapeHtml(c)}</div>`).join('');
+}
+
+function computeChanges() {
+    const initial = JSON.parse(initialSnapshot);
+    const oldSpeakers = initial.speakers || {};
+    const oldRooms = initial.rooms || {};
+    const changes = [];
+
+    // Per room: compare each side
+    const allRoomIds = new Set([...Object.keys(oldRooms), ...Object.keys(rooms)]);
+    for (const rid of allRoomIds) {
+        const o = oldRooms[rid];
+        const n = rooms[rid];
+        if (!o && n) { changes.push(`Add room "${n.name || rid}"`); continue; }
+        if (o && !n) { changes.push(`Remove room "${o.name || rid}"`); continue; }
+        if (o.name !== n.name) changes.push(`Rename "${o.name || rid}" → "${n.name}"`);
+        for (const side of ['left', 'right', 'sub']) {
+            const oldId = o[side]; const newId = n[side];
+            const oldChan = oldId && oldSpeakers[oldId]
+                ? `${oldSpeakers[oldId].amplifier}/ch${oldSpeakers[oldId].channel}` : null;
+            const newChan = newId && speakers[newId]
+                ? `${speakers[newId].amplifier}/ch${speakers[newId].channel}` : null;
+            if (oldChan !== newChan) {
+                if (newChan && oldChan) changes.push(`${n.name || rid} ${side.toUpperCase()}: ${oldChan} → ${newChan}`);
+                else if (newChan) changes.push(`${n.name || rid} ${side.toUpperCase()}: assign ${newChan}`);
+                else changes.push(`${n.name || rid} ${side.toUpperCase()}: unassign`);
+            }
+        }
+    }
+    // Volume changes
+    for (const [spkId, spk] of Object.entries(speakers)) {
+        const old = oldSpeakers[spkId];
+        if (old && old.volume !== spk.volume) {
+            changes.push(`Volume ${spkId}: ${old.volume}% → ${spk.volume}%`);
+        }
+    }
+    return changes;
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ============================================================
+// Mutations (operate on local state; commit via Apply)
+// ============================================================
+function ensureSpeaker(spkId, amp, channel) {
+    if (!speakers[spkId]) {
+        speakers[spkId] = {amplifier: amp, channel: channel, volume: 100, latency: 0};
+    } else {
+        speakers[spkId].amplifier = amp;
+        speakers[spkId].channel = channel;
+    }
+}
+
+function dropSideOnCell(roomId, side, amp, channel) {
+    // Returns {ok:true} or {conflict:{...}} for caller to display modal
+    const existing = findCellAssignment(amp, channel);
+    if (existing && existing.speakerId) {
+        // Channel already has an assignment
+        if (existing.roomId === roomId && existing.side === side) {
+            return {ok: true};  // no-op
+        }
+        // Conflict — caller decides
+        return {conflict: {amp, channel, existing, incoming: {roomId, side}}};
+    }
+    return commitAssign(roomId, side, amp, channel);
+}
+
+function commitAssign(roomId, side, amp, channel) {
+    // 1. Remove this side's previous assignment for this room — keep volume
+    //    so a channel move doesn't reset the slider.
+    const prevSpkId = rooms[roomId][side];
+    let prevVolume = 100;
+    let prevLatency = 0;
+    if (prevSpkId) {
+        if (speakers[prevSpkId]) {
+            prevVolume = speakers[prevSpkId].volume ?? 100;
+            prevLatency = speakers[prevSpkId].latency ?? 0;
+        }
+        delete speakers[prevSpkId];
+    }
+    // 2. Create / update the speaker entry
+    const spkId = suggestSpeakerId(roomId, side);
+    ensureSpeaker(spkId, amp, channel);
+    speakers[spkId].volume = prevVolume;
+    speakers[spkId].latency = prevLatency;
+    // 3. Point the room at it
+    rooms[roomId][side] = spkId;
+    // 4. Clean up: any other room that was using this exact (amp, ch) loses it
+    for (const [rid, r] of Object.entries(rooms)) {
+        if (rid === roomId) continue;
+        for (const s of ['left', 'right', 'sub']) {
+            const sid = r[s];
+            if (sid && speakers[sid] && speakers[sid].amplifier === amp && speakers[sid].channel === channel) {
+                delete speakers[sid];
+                r[s] = null;
+            }
+        }
+    }
+    render();
+    return {ok: true};
+}
+
+function commitSwap(roomId, side, amp, channel, existing) {
+    // Where was the incoming side previously? Remember its (amp, ch) so we can
+    // park the displaced one there.
+    const incomingPrevSpkId = rooms[roomId][side];
+    const incomingPrev = incomingPrevSpkId ? speakers[incomingPrevSpkId] : null;
+
+    // Detach existing from its room (if any)
+    if (existing.roomId) {
+        rooms[existing.roomId][existing.side] = null;
+    }
+    delete speakers[existing.speakerId];
+
+    // Place incoming on (amp, ch)
+    commitAssign(roomId, side, amp, channel);
+
+    // If incoming had a previous channel and the displaced side has nowhere to
+    // live, move it there
+    if (incomingPrev && existing.roomId) {
+        commitAssign(existing.roomId, existing.side, incomingPrev.amplifier, incomingPrev.channel);
+    }
+    render();
+}
+
+function commitReplace(roomId, side, amp, channel, existing) {
+    if (existing.roomId) {
+        rooms[existing.roomId][existing.side] = null;
+    }
+    delete speakers[existing.speakerId];
+    commitAssign(roomId, side, amp, channel);
+}
+
+function unassignCell(amp, channel) {
+    const a = findCellAssignment(amp, channel);
+    if (!a) return;
+    if (a.roomId) rooms[a.roomId][a.side] = null;
+    delete speakers[a.speakerId];
+    render();
+}
+
+function onVolumeInput(input, spkId) {
+    const v = parseInt(input.value, 10);
+    input.parentElement.querySelector('.cell-vol-num').textContent = v;
+    if (speakers[spkId]) speakers[spkId].volume = v;
+    renderPendingBar();
+}
+
+function addSub(roomId) {
+    if (!rooms[roomId].sub) rooms[roomId].sub = null;
+    render();
+}
+
+function removeSub(roomId) {
+    const sid = rooms[roomId].sub;
+    if (sid) delete speakers[sid];
+    delete rooms[roomId].sub;
+    render();
+}
+
+function renameRoom(roomId) {
+    const cur = rooms[roomId].name || roomId;
+    const next = prompt('Rename room', cur);
+    if (next && next !== cur) {
+        rooms[roomId].name = next;
+        render();
+    }
+}
+
+function deleteRoom(roomId) {
+    const name = rooms[roomId].name || roomId;
+    if (!confirm(`Delete room "${name}"? This will unassign all its channels.`)) return;
+    for (const side of ['left', 'right', 'sub']) {
+        const spk = rooms[roomId][side];
+        if (spk) delete speakers[spk];
+    }
+    delete rooms[roomId];
+    render();
+}
+
+// ============================================================
+// Drag and drop
+// ============================================================
+function onDragStart(e) {
+    const handle = e.target.closest('.room-handle');
+    const cell = e.target.closest('.channel-cell.assigned');
+    if (handle) {
+        dragData = {kind: 'side', roomId: handle.dataset.room, side: handle.dataset.side};
+    } else if (cell) {
+        const a = findCellAssignment(cell.dataset.amp, parseInt(cell.dataset.channel, 10));
+        if (a && a.roomId) dragData = {kind: 'side', roomId: a.roomId, side: a.side, fromCell: true};
+    } else {
+        return;
+    }
+    document.body.classList.add('dragging');
+    if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        try { e.dataTransfer.setData('text/plain', JSON.stringify(dragData)); } catch (_) {}
+    }
+}
+
+function onDragEnd() {
+    dragData = null;
+    document.body.classList.remove('dragging');
+    document.querySelectorAll('.channel-cell.drag-over').forEach(c => c.classList.remove('drag-over'));
+}
+
+function onCellDragOver(e) {
+    if (!dragData) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.classList.add('drag-over');
+}
+
+function onCellDragLeave(e) {
+    e.currentTarget.classList.remove('drag-over');
+}
+
+function onCellDrop(e) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drag-over');
+    if (!dragData) return;
+    const cell = e.currentTarget;
+    const amp = cell.dataset.amp;
+    const channel = parseInt(cell.dataset.channel, 10);
+    handleDrop(dragData, amp, channel);
+}
+
+function handleDrop(data, amp, channel) {
+    if (data.kind !== 'side') return;
+    const result = dropSideOnCell(data.roomId, data.side, amp, channel);
+    if (result.conflict) {
+        showConflictModal(result.conflict);
+    }
+}
+
+// ============================================================
+// Tap-to-place fallback (touch / a11y)
+// ============================================================
+function onTapHandle(roomId, side) {
+    if (tapSelection && tapSelection.roomId === roomId && tapSelection.side === side) {
+        tapSelection = null;
+        document.body.classList.remove('tap-selecting');
+        document.querySelectorAll('.room-handle.tap-selected').forEach(h => h.classList.remove('tap-selected'));
+        return;
+    }
+    tapSelection = {kind: 'side', roomId, side};
+    document.body.classList.add('tap-selecting');
+    document.querySelectorAll('.room-handle.tap-selected').forEach(h => h.classList.remove('tap-selected'));
+    document.querySelector(`.room-handle[data-room="${roomId}"][data-side="${side}"]`)
+        ?.classList.add('tap-selected');
+}
+
+function onCellClick(e) {
+    if (!tapSelection) return;
+    const cell = e.target.closest('.channel-cell');
+    if (!cell) return;
+    // Don't intercept clicks on internal buttons / sliders
+    if (e.target.closest('button, input')) return;
+    handleDrop(tapSelection, cell.dataset.amp, parseInt(cell.dataset.channel, 10));
+    tapSelection = null;
+    document.body.classList.remove('tap-selecting');
+    document.querySelectorAll('.room-handle.tap-selected').forEach(h => h.classList.remove('tap-selected'));
+}
+
+// ============================================================
+// Conflict modal
+// ============================================================
+function showConflictModal(conflict) {
+    conflictResolution = conflict;
+    const incRoom = rooms[conflict.incoming.roomId]?.name || conflict.incoming.roomId;
+    const exRoom = conflict.existing.roomId
+        ? (rooms[conflict.existing.roomId]?.name || conflict.existing.roomId)
+        : '(orphan)';
+    const swapBtn = document.getElementById('conflict-swap-btn');
+    swapBtn.disabled = !conflict.existing.roomId;
+    document.getElementById('conflict-body').textContent =
+        `Channel ${conflict.amp}/${conflict.channel} is currently assigned to ${exRoom} ${conflict.existing.side?.toUpperCase() || ''}. ` +
+        `What should happen with the incoming ${incRoom} ${conflict.incoming.side.toUpperCase()}?`;
+    document.getElementById('conflict-modal').classList.remove('hidden');
+}
+
+function closeConflictModal() {
+    document.getElementById('conflict-modal').classList.add('hidden');
+    conflictResolution = null;
+}
+
+function resolveConflict(action) {
+    if (!conflictResolution) return;
+    const {amp, channel, existing, incoming} = conflictResolution;
+    if (action === 'swap') {
+        commitSwap(incoming.roomId, incoming.side, amp, channel, existing);
+    } else {
+        commitReplace(incoming.roomId, incoming.side, amp, channel, existing);
+    }
+    closeConflictModal();
+}
+
+// ============================================================
+// Pending bar / Apply / Discard
+// ============================================================
+function togglePendingDetails() {
+    document.getElementById('pending-details').classList.toggle('hidden');
+}
+
+function discardChanges() {
+    const initial = JSON.parse(initialSnapshot);
+    speakers = initial.speakers;
+    rooms = initial.rooms;
+    render();
+}
+
+async function applyChanges() {
+    const btn = document.getElementById('apply-btn');
+    btn.disabled = true; btn.classList.add('loading');
+    try {
+        const r = await fetch('/api/config/apply', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({speakers, rooms}),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+            showToast('Apply failed: ' + (data.detail || r.statusText), true);
+            return;
+        }
+        // Refresh page to pick up the new initial snapshot
+        const restarted = (data.services_restarted || []).length;
+        const alsa = data.alsa_changed ? 'ALSA regenerated, ' : '';
+        showToast(`Applied (${alsa}${restarted} service${restarted === 1 ? '' : 's'} restarted)`);
+        setTimeout(() => location.reload(), 700);
+    } catch (e) {
+        showToast('Connection error: ' + e.message, true);
+    } finally {
+        btn.disabled = false; btn.classList.remove('loading');
+    }
+}
+
+// ============================================================
+// New room modal
+// ============================================================
+function openNewRoomModal() {
+    document.getElementById('new-room-name').value = '';
+    document.getElementById('new-room-id').value = '';
+    document.getElementById('new-room-modal').classList.remove('hidden');
+    setTimeout(() => document.getElementById('new-room-name').focus(), 50);
+}
+
+function closeNewRoomModal() {
+    document.getElementById('new-room-modal').classList.add('hidden');
+}
+
+function createRoom(e) {
+    e.preventDefault();
+    const name = document.getElementById('new-room-name').value.trim();
+    const id = document.getElementById('new-room-id').value.trim().toLowerCase();
+    if (!name || !id) return;
+    if (rooms[id]) { showToast('Room ID already exists', true); return; }
+    rooms[id] = {name, left: null, right: null, zones: []};
+    closeNewRoomModal();
+    render();
+}
+
+// ============================================================
+// Test buttons
+// ============================================================
+async function testCell(amp, channel) {
+    try {
+        await fetch('/api/test/channel', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({amplifier: amp, channel: channel, type: testMode}),
+        });
+    } catch (_) { showToast('Connection error', true); }
+}
+
+async function testRoom(roomId) {
+    try {
+        await fetch('/api/test/room', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({room: roomId, position: 'stereo'}),
+        });
+    } catch (_) { showToast('Connection error', true); }
+}
+
+// ============================================================
+// Amp power (kept from previous page)
+// ============================================================
 async function setAmp(amp, state) {
     try {
-        const response = await fetch('/api/system/amp', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({amp, state})
+        const r = await fetch('/api/system/amp', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({amp, state}),
         });
-        if (response.ok) {
-            showToast(`${amp} turned ${state}`);
-        } else {
-            showToast('Error', true);
-        }
+        if (r.ok) showToast(`${amp} turned ${state}`);
+        else showToast('Error', true);
         loadAmpPower();
-    } catch (e) {
-        showToast('Connection error', true);
-    }
+    } catch (_) { showToast('Connection error', true); }
 }
 
 async function setAllAmps(state) {
-    for (const amp of ['amp1', 'amp2', 'amp3']) {
+    for (const a of ['amp1', 'amp2', 'amp3']) {
         await fetch('/api/system/amp', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({amp, state})
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({amp: a, state}),
         });
     }
     showToast(`All amplifiers turned ${state}`);
@@ -128,32 +686,44 @@ async function setAllAmps(state) {
 
 async function loadAmpPower() {
     try {
-        const response = await fetch('/api/system/powermanager');
-        const data = await response.json();
-
-        for (const [amp, info] of Object.entries(data.amps)) {
+        const r = await fetch('/api/system/powermanager');
+        const data = await r.json();
+        for (const [amp, info] of Object.entries(data.amps || {})) {
             const el = document.getElementById(`power-${amp}`);
             if (!el) continue;
-
             const isOn = info.state === 'on';
             const hasAudio = info.audio_active;
-
             el.innerHTML = `
-                <span class="power-indicator ${isOn ? 'power-on' : 'power-off'}">
-                    ${isOn ? 'ON' : 'OFF'}
-                </span>
+                <span class="power-indicator ${isOn ? 'power-on' : 'power-off'}">${isOn ? 'ON' : 'OFF'}</span>
                 ${hasAudio ? '<span class="power-indicator power-audio">Audio</span>' : ''}
                 <button class="btn btn-small ${isOn ? 'btn-danger' : 'btn-success'}"
-                        onclick="setAmp('${amp}', '${isOn ? 'off' : 'on'}')">
-                    ${isOn ? 'Turn Off' : 'Turn On'}
-                </button>
+                        onclick="setAmp('${amp}', '${isOn ? 'off' : 'on'}')">${isOn ? 'Turn Off' : 'Turn On'}</button>
             `;
         }
-    } catch (e) {
-        // silently fail
-    }
+    } catch (_) { /* silent */ }
 }
 
+// ============================================================
+// Wire up DOM events
+// ============================================================
+document.addEventListener('dragstart', onDragStart);
+document.addEventListener('dragend', onDragEnd);
+document.querySelectorAll('.channel-cell').forEach(cell => {
+    cell.addEventListener('dragover', onCellDragOver);
+    cell.addEventListener('dragleave', onCellDragLeave);
+    cell.addEventListener('drop', onCellDrop);
+    cell.addEventListener('click', onCellClick);
+});
+document.getElementById('conflict-modal').addEventListener('click', e => {
+    if (e.target.id === 'conflict-modal') closeConflictModal();
+});
+document.getElementById('new-room-modal').addEventListener('click', e => {
+    if (e.target.id === 'new-room-modal') closeNewRoomModal();
+});
+
+// Initial render + amp power load
+render();
 loadAmpPower();
+setInterval(loadAmpPower, 5000);
 </script>
 {% endblock %}

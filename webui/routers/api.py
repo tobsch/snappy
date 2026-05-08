@@ -1,10 +1,13 @@
 """API routes - REST endpoints"""
 
+import copy
+
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
 from services.config import ConfigService
 from services.audio import AudioService
+from services.apply import apply_config
 
 router = APIRouter(tags=["api"])
 
@@ -216,34 +219,105 @@ async def test_room(request: Request, data: RoomTestRequest):
     return {"status": "ok"}
 
 
-# === Deployment ===
+# === Bulk config write + apply ===
+
+class ApplyRequest(BaseModel):
+    """New full config for speakers/rooms (other top-level keys preserved as-is)."""
+    speakers: dict[str, dict]
+    rooms: dict[str, dict]
+
+
+@router.post("/config/apply")
+async def config_apply(request: Request, data: ApplyRequest):
+    """Atomically write new speakers+rooms config and run the apply pipeline.
+
+    Steps: write speaker_config.json, regenerate /etc/asound.conf, restart
+    sendspin services for rooms whose effective channel mapping changed.
+    """
+    config_svc = get_config_service(request)
+    project_dir = request.app.state.project_dir
+
+    old_config = copy.deepcopy(config_svc.config)
+
+    # Validate: every speaker referenced by a room must exist; no two speakers
+    # may share an (amp, channel); no two rooms may share a speaker.
+    speakers = data.speakers
+    rooms = data.rooms
+
+    # (amp, channel) uniqueness
+    seen_channels: dict[tuple[str, int], str] = {}
+    for spk_id, spk in speakers.items():
+        amp = spk.get("amplifier")
+        ch = spk.get("channel")
+        if not amp or ch is None:
+            raise HTTPException(status_code=400, detail=f"Speaker {spk_id!r} missing amplifier/channel")
+        key = (amp, int(ch))
+        if key in seen_channels:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Channel {amp}/{ch} used by both {seen_channels[key]!r} and {spk_id!r}",
+            )
+        seen_channels[key] = spk_id
+
+    # Speaker-room consistency
+    speaker_used_by: dict[str, str] = {}
+    for room_id, room in rooms.items():
+        for side in ("left", "right", "sub"):
+            spk_id = room.get(side)
+            if not spk_id:
+                continue
+            if spk_id not in speakers:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Room {room_id!r} references unknown speaker {spk_id!r}",
+                )
+            if spk_id in speaker_used_by:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Speaker {spk_id!r} used by both {speaker_used_by[spk_id]!r} and {room_id!r}",
+                )
+            speaker_used_by[spk_id] = room_id
+
+    # Build new config: copy old + replace speakers/rooms
+    new_config = copy.deepcopy(old_config)
+    new_config["speakers"] = speakers
+    new_config["rooms"] = rooms
+
+    # Persist to disk (creates a .bak)
+    config_svc.save(new_config)
+
+    # Run apply pipeline
+    try:
+        result = await apply_config(project_dir, old_config, new_config)
+    except RuntimeError as e:
+        # Roll back on apply failure
+        config_svc.save(old_config)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {"status": "ok", **result}
+
+
+# === Legacy deploy endpoint (manual full reapply via Settings page) ===
 
 @router.post("/deploy")
 async def deploy(request: Request):
-    """Deploy configuration (generates ALSA config, restarts services)"""
-    import asyncio
+    """Force-regenerate /etc/asound.conf and restart all sendspin services.
 
+    Useful from the Settings page when something drifted out of sync. The new
+    /config/apply path is the normal way to roll out edits.
+    """
+    config_svc = get_config_service(request)
     project_dir = request.app.state.project_dir
 
-    # Run deploy_config.py
-    proc = await asyncio.create_subprocess_exec(
-        'python3', str(project_dir / 'deploy_config.py'),
-        cwd=str(project_dir),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    stdout, stderr = await proc.communicate()
+    # Synthesize affected_rooms = ALL rooms by passing an empty old_config
+    fake_old = {"speakers": {}, "rooms": {}}
+    new = copy.deepcopy(config_svc.config)
+    try:
+        result = await apply_config(project_dir, fake_old, new)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    if proc.returncode != 0:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Deployment failed: {stderr.decode()}"
-        )
-
-    return {
-        "status": "ok",
-        "output": stdout.decode(),
-    }
+    return {"status": "ok", **result}
 
 
 @router.get("/deploy/preview")

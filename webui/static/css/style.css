@@ -194,59 +194,131 @@ h2 {
     flex-wrap: wrap;
 }
 
-/* Channel Grid */
+/* Channel Grid (drag-drop) */
 .channel-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 0.5rem;
 }
 
-.channel-tile {
+@media (max-width: 900px) {
+    .channel-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+.channel-cell {
+    --room-color: var(--gray-300);
     background: var(--gray-50);
     border: 2px solid var(--gray-200);
     border-radius: var(--radius);
-    padding: 1rem;
-    text-align: center;
-    transition: all 0.2s;
+    padding: 0.5rem;
+    min-height: 110px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    transition: border-color 0.15s, background 0.15s, transform 0.1s;
 }
 
-.channel-tile.assigned {
+.channel-cell.drop-target {
+    border-style: dashed;
+    border-color: var(--gray-300);
+}
+
+.channel-cell.assigned {
+    border-color: var(--room-color);
+    background: color-mix(in srgb, var(--room-color) 12%, white);
+}
+
+body.dragging .channel-cell.drop-target,
+body.tap-selecting .channel-cell.drop-target {
     border-color: var(--primary);
     background: #eff6ff;
 }
 
-.channel-tile.unassigned {
-    border-style: dashed;
+.channel-cell.drag-over {
+    border-color: var(--primary) !important;
+    background: #dbeafe !important;
+    transform: scale(1.03);
 }
 
 .channel-number {
-    font-size: 1.5rem;
-    font-weight: 700;
+    position: absolute;
+    top: 0.25rem;
+    left: 0.5rem;
+    font-size: 0.75rem;
     color: var(--gray-400);
+    font-weight: 600;
 }
 
-.channel-tile.assigned .channel-number {
-    color: var(--primary);
+.channel-cell.assigned .channel-number { color: var(--gray-700); }
+
+.channel-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    margin-top: 0.9rem;
+    flex: 1;
 }
 
-.channel-room {
-    font-size: 0.875rem;
-    font-weight: 500;
-    margin: 0.5rem 0 0.25rem;
-    white-space: nowrap;
+.cell-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    color: var(--gray-400);
+    font-size: 0.75rem;
+    font-style: italic;
+}
+
+.cell-room {
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1.1;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.channel-position {
-    font-size: 0.75rem;
+.cell-side {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--room-color);
+    filter: brightness(0.6);
+}
+
+.cell-vol {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.65rem;
+}
+
+.cell-vol input[type="range"] {
+    flex: 1;
+    min-width: 0;
+}
+
+.cell-vol-num {
+    min-width: 22px;
+    text-align: right;
     color: var(--gray-500);
-    text-transform: uppercase;
 }
 
-.channel-buttons {
-    margin-top: 0.75rem;
+.cell-buttons {
+    display: flex;
+    gap: 0.25rem;
+    margin-top: auto;
 }
+
+.cell-buttons .btn-icon {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    font-size: 0.75rem;
+}
+
+.unassign-btn { background: var(--gray-100); }
+.unassign-btn:hover { background: var(--danger); color: white; }
 
 /* Test Mode Toggle */
 .test-mode-toggle {
@@ -1122,3 +1194,169 @@ h2 {
     background: #dbeafe;
     color: #1e40af;
 }
+
+/* ============================================================
+   Amplifiers page extras: pending bar, room cards, drag handles
+   ============================================================ */
+
+.pending-bar {
+    position: sticky;
+    top: 60px;
+    z-index: 50;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--warning);
+    color: white;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius);
+    margin-bottom: 1rem;
+    box-shadow: var(--shadow);
+}
+
+.pending-bar.hidden { display: none; }
+
+.pending-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+}
+
+.pending-toggle {
+    background: rgba(255,255,255,0.25);
+    border: none;
+    color: white;
+    border-radius: 4px;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+}
+
+.pending-actions { display: flex; gap: 0.5rem; }
+
+.pending-details {
+    background: white;
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    box-shadow: var(--shadow);
+    font-size: 0.85rem;
+    max-height: 250px;
+    overflow-y: auto;
+}
+.pending-details.hidden { display: none; }
+.pending-line { padding: 0.15rem 0; }
+
+.amps-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.amp-section { padding: 1rem 1.5rem; }
+
+/* Rooms section */
+.rooms-section { padding-top: 1rem; }
+.rooms-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.room-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.75rem;
+}
+
+.room-card {
+    --room-color: var(--gray-400);
+    background: white;
+    border: 2px solid var(--room-color);
+    border-radius: var(--radius);
+    padding: 0.75rem;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.room-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.room-name {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.room-status {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.room-status.status-complete { background: var(--success); }
+.room-status.status-partial { background: var(--warning); }
+.room-status.status-empty { background: var(--gray-300); }
+
+.room-handles {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.room-handle {
+    flex: 1;
+    background: var(--room-color);
+    color: white;
+    border-radius: var(--radius);
+    padding: 0.5rem;
+    text-align: center;
+    cursor: grab;
+    user-select: none;
+    transition: transform 0.1s, opacity 0.15s, box-shadow 0.15s;
+}
+.room-handle:hover { transform: translateY(-1px); }
+.room-handle:active { cursor: grabbing; }
+
+.room-handle.placed { opacity: 0.55; }
+.room-handle.unplaced {
+    box-shadow: 0 0 0 2px white, 0 0 0 4px var(--warning);
+}
+
+.room-handle.tap-selected {
+    box-shadow: 0 0 0 3px var(--primary);
+    transform: scale(1.05);
+}
+
+.handle-side {
+    font-weight: 700;
+    font-size: 0.9rem;
+    letter-spacing: 0.05em;
+}
+
+.room-card-actions {
+    display: flex;
+    gap: 0.25rem;
+    justify-content: flex-end;
+}
+.room-card-actions .btn-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 0.85rem;
+}
+
+/* Drag affordance: dim the page while dragging, highlight valid targets */
+body.dragging .room-card,
+body.tap-selecting .room-card { pointer-events: none; }
+body.dragging .room-handle,
+body.tap-selecting .room-handle { pointer-events: auto; }
