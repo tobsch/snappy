@@ -95,8 +95,9 @@ while true; do
   fi
 
   # Snapshot 1: bytes_received per running sendspin
-  declare -A pid_room
-  declare -A bytes1
+  # `declare -A foo=()` clears the array; plain `declare -A foo` keeps stale entries.
+  declare -A pid_room=()
+  declare -A bytes1=()
   while read -r rid pid; do
     [[ -z "$rid" || -z "$pid" ]] && continue
     pid_room[$pid]=$rid
@@ -107,7 +108,7 @@ while true; do
   sleep "$SAMPLE_WINDOW"
 
   # Snapshot 2 + delta → which rooms have real audio flowing
-  declare -A active_amps
+  declare -A active_amps=()
   for pid in "${!bytes1[@]}"; do
     b2=$(ws_bytes_received "$pid")
     b2=${b2:-0}
@@ -121,7 +122,7 @@ while true; do
   done
 
   # Read actual hardware state (self-heals from external changes)
-  declare -A amp_state
+  declare -A amp_state=()
   while read -r amp state; do
     amp_state[$amp]=$state
   done < <(read_amp_states)
