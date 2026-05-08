@@ -44,6 +44,7 @@ async def amplifiers(request: Request):
         "amps": amps,
         "speakers": config_svc.get_speakers(),
         "rooms": config_svc.get_rooms(),
+        "max_volume": config_svc.get_max_volume(),
     })
 
 
@@ -57,14 +58,3 @@ async def playback(request: Request):
     })
 
 
-@router.get("/settings", response_class=HTMLResponse)
-async def settings(request: Request):
-    """Settings page"""
-    config_svc = get_config_service(request)
-    templates = request.app.state.templates
-
-    return templates.TemplateResponse("settings.html", {
-        "request": request,
-        "max_volume": config_svc.get_max_volume(),
-        "global_config": config_svc.get_global(),
-    })

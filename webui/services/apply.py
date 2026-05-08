@@ -144,6 +144,16 @@ async def apply_config(project_dir: Path, old_config: dict, new_config: dict) ->
     new_rooms = new_config.get("rooms", {})
     affected = affected_rooms(old_config, new_config)
 
+    # If global settings (max_volume etc.) changed, every device's ttable
+    # coefficients are rewritten — restart every room that still has any
+    # speaker so the running sendspin picks up the new gain.
+    old_global = old_config.get("global", {})
+    new_global = new_config.get("global", {})
+    if old_global != new_global:
+        affected = sorted(set(affected) | {
+            rid for rid, r in new_rooms.items() if room_has_speakers(r)
+        })
+
     to_restart: list[str] = []
     to_stop: list[str] = []
     for rid in affected:

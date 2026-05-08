@@ -29,6 +29,13 @@
     <div class="rack-header">
         <div class="rack-brand">⏵⏵ MULTIROOM AUDIO RACK</div>
         <div class="rack-controls">
+            <div class="hw-slider">
+                <span class="hw-slider-label">MAX VOL</span>
+                <input type="range" id="max-vol-slider" min="0" max="100"
+                       value="{{ (max_volume * 100) | int }}"
+                       oninput="onMaxVolumeInput(this)">
+                <span class="hw-slider-value" id="max-vol-num">{{ (max_volume * 100) | int }}</span>
+            </div>
             <div class="hw-toggle hw-toggle-2pos" data-value="chime">
                 <span class="hw-toggle-label">TEST</span>
                 <span class="hw-toggle-track" tabindex="0" role="switch"
@@ -155,7 +162,8 @@
 const AMPS = {{ amps | tojson }};
 let speakers = {{ speakers | tojson }};
 let rooms = {{ rooms | tojson }};
-const initialSnapshot = JSON.stringify({speakers, rooms});
+let maxVolume = {{ max_volume | tojson }};   // 0..1
+const initialSnapshot = JSON.stringify({speakers, rooms, maxVolume});
 
 let testMode = 'chime';
 let conflictResolution = null;
@@ -181,7 +189,14 @@ function cycleAllAmps() {
     if (t) t.dataset.value = next;
     setAllAmps(next === 'b' ? 'on' : 'off');
 }
-function isDirty() { return JSON.stringify({speakers, rooms}) !== initialSnapshot; }
+function isDirty() { return JSON.stringify({speakers, rooms, maxVolume}) !== initialSnapshot; }
+
+function onMaxVolumeInput(input) {
+    const pct = parseInt(input.value, 10);
+    document.getElementById('max-vol-num').textContent = pct;
+    maxVolume = pct / 100;
+    renderPendingBar();
+}
 
 function colorForRoom(roomId) {
     let h = 0;
@@ -418,7 +433,11 @@ function computeChanges() {
     const initial = JSON.parse(initialSnapshot);
     const oldSpeakers = initial.speakers || {};
     const oldRooms = initial.rooms || {};
+    const oldMaxVol = initial.maxVolume;
     const changes = [];
+    if (oldMaxVol !== maxVolume) {
+        changes.push(`Max volume: ${Math.round(oldMaxVol * 100)}% → ${Math.round(maxVolume * 100)}%`);
+    }
     const allRoomIds = new Set([...Object.keys(oldRooms), ...Object.keys(rooms)]);
     for (const rid of allRoomIds) {
         const o = oldRooms[rid];
@@ -767,6 +786,9 @@ function discardChanges() {
     const initial = JSON.parse(initialSnapshot);
     speakers = initial.speakers;
     rooms = initial.rooms;
+    maxVolume = initial.maxVolume;
+    document.getElementById('max-vol-slider').value = Math.round(maxVolume * 100);
+    document.getElementById('max-vol-num').textContent = Math.round(maxVolume * 100);
     render();
 }
 
@@ -777,7 +799,7 @@ async function applyChanges() {
         const r = await fetch('/api/config/apply', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({speakers, rooms}),
+            body: JSON.stringify({speakers, rooms, max_volume: maxVolume}),
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {

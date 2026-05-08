@@ -94,20 +94,6 @@ async def update_speaker(request: Request, speaker_id: str, data: SpeakerUpdate)
     return {"status": "ok", "speaker_id": speaker_id}
 
 
-# === Global settings ===
-
-class GlobalUpdate(BaseModel):
-    max_volume: float
-
-
-@router.put("/config/global")
-async def update_global(request: Request, data: GlobalUpdate):
-    """Update global settings"""
-    config_svc = get_config_service(request)
-    config_svc.update_global(data.model_dump())
-    return {"status": "ok"}
-
-
 # === Test endpoints ===
 
 class ChannelTestRequest(BaseModel):
@@ -188,6 +174,7 @@ class ApplyRequest(BaseModel):
     """New full config for speakers/rooms (other top-level keys preserved as-is)."""
     speakers: dict[str, dict]
     rooms: dict[str, dict]
+    max_volume: float | None = None  # 0..1; if provided, replaces global.max_volume
 
 
 @router.post("/config/apply")
@@ -241,10 +228,13 @@ async def config_apply(request: Request, data: ApplyRequest):
                 )
             speaker_used_by[spk_id] = room_id
 
-    # Build new config: copy old + replace speakers/rooms
+    # Build new config: copy old + replace speakers/rooms (+ optional global)
     new_config = copy.deepcopy(old_config)
     new_config["speakers"] = speakers
     new_config["rooms"] = rooms
+    if data.max_volume is not None:
+        v = max(0.0, min(1.0, float(data.max_volume)))
+        new_config.setdefault("global", {})["max_volume"] = v
 
     # Persist to disk (creates a .bak)
     config_svc.save(new_config)
@@ -258,50 +248,6 @@ async def config_apply(request: Request, data: ApplyRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
     return {"status": "ok", **result}
-
-
-# === Legacy deploy endpoint (manual full reapply via Settings page) ===
-
-@router.post("/deploy")
-async def deploy(request: Request):
-    """Force-regenerate /etc/asound.conf and restart all sendspin services.
-
-    Useful from the Settings page when something drifted out of sync. The new
-    /config/apply path is the normal way to roll out edits.
-    """
-    config_svc = get_config_service(request)
-    project_dir = request.app.state.project_dir
-
-    # Synthesize affected_rooms = ALL rooms by passing an empty old_config
-    fake_old = {"speakers": {}, "rooms": {}}
-    new = copy.deepcopy(config_svc.config)
-    try:
-        result = await apply_config(project_dir, fake_old, new)
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    return {"status": "ok", **result}
-
-
-@router.get("/deploy/preview")
-async def preview_deploy(request: Request):
-    """Preview generated ALSA config without deploying"""
-    import asyncio
-
-    project_dir = request.app.state.project_dir
-
-    # Generate ALSA config
-    alsa_proc = await asyncio.create_subprocess_exec(
-        'python3', str(project_dir / 'generate_alsa_config.py'),
-        cwd=str(project_dir),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    alsa_stdout, _ = await alsa_proc.communicate()
-
-    return {
-        "alsa_config": alsa_stdout.decode(),
-    }
 
 
 # === System ===
