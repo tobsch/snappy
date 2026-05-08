@@ -3,7 +3,13 @@
 {% block title %}Amplifiers - Multiroom Audio{% endblock %}
 
 {% block content %}
-<h1>Amplifiers</h1>
+<style>
+    /* Let the rack span the full viewport width; nav bar has its own padding */
+    body { background: #0a0a0a; }
+    main.container { max-width: 100%; padding: 1.25rem 1.5rem; }
+</style>
+
+<h1 class="rack-title">Amplifiers</h1>
 
 <!-- Pending changes bar -->
 <div id="pending-bar" class="pending-bar hidden">
@@ -18,59 +24,94 @@
 </div>
 <div id="pending-details" class="pending-details hidden"></div>
 
-<!-- Amp panels -->
-<div class="section">
-    <div class="amps-toolbar">
-        <div class="button-group">
-            <button class="btn btn-success" onclick="setAllAmps('on')" type="button">All ON</button>
-            <button class="btn btn-danger" onclick="setAllAmps('off')" type="button">All OFF</button>
-        </div>
-        <span class="test-mode-toggle">
-            <label>
-                <input type="radio" name="test-mode" value="chime" checked onchange="setTestMode('chime')">
-                Chime
-            </label>
-            <label>
-                <input type="radio" name="test-mode" value="tts" onchange="setTestMode('tts')">
-                TTS
-            </label>
-        </span>
-    </div>
-</div>
+<!-- The rack -->
+<div class="rack">
+    <div class="rack-header">
+        <div class="rack-brand">⏵⏵ MULTIROOM AUDIO RACK</div>
+        <div class="rack-controls">
+            <div class="hw-toggle hw-toggle-2pos" data-value="chime">
+                <span class="hw-toggle-label">TEST</span>
+                <span class="hw-toggle-track" tabindex="0" role="switch"
+                      aria-label="Test mode: Chime or TTS"
+                      onclick="cycleTestMode()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();cycleTestMode();}">
+                    <span class="hw-toggle-pos hw-toggle-pos-a">CHIME</span>
+                    <span class="hw-toggle-knob"></span>
+                    <span class="hw-toggle-pos hw-toggle-pos-b">TTS</span>
+                </span>
+            </div>
 
-{% for amp in amps %}
-<div class="section amp-section" id="section-{{ amp.id }}">
-    <div class="amp-header">
-        <h2>{{ amp.id }} <span class="text-muted">({{ amp.card }})</span></h2>
-        <div class="amp-power-badge" id="power-{{ amp.id }}">
-            <span class="text-muted">...</span>
+            <div class="hw-toggle hw-toggle-2pos" id="all-amps-toggle" data-value="off">
+                <span class="hw-toggle-label">AMPS</span>
+                <span class="hw-toggle-track" tabindex="0" role="switch"
+                      aria-label="Power all amplifiers"
+                      onclick="cycleAllAmps()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();cycleAllAmps();}">
+                    <span class="hw-toggle-pos hw-toggle-pos-a">OFF</span>
+                    <span class="hw-toggle-knob"></span>
+                    <span class="hw-toggle-pos hw-toggle-pos-b">ON</span>
+                </span>
+            </div>
         </div>
     </div>
-    <div class="channel-grid" data-amp="{{ amp.id }}">
-        {% for ch in range(1, amp.channels + 1) %}
-        <div class="channel-cell" data-amp="{{ amp.id }}" data-channel="{{ ch }}">
-            <div class="channel-number">{{ ch }}</div>
-            <div class="channel-content"></div>
+
+    <div class="rack-body" id="rack-body">
+        <div class="rack-module patch-panel">
+            <div class="module-faceplate">
+                <div class="screw screw-tl"></div>
+                <div class="screw screw-bl"></div>
+                <div class="screw screw-tr"></div>
+                <div class="screw screw-br"></div>
+
+                <div class="module-meta">
+                    <div class="module-label">PATCH PANEL</div>
+                    <div class="module-sub">Rooms</div>
+                </div>
+
+                <div class="room-slots" id="room-slots"></div>
+
+                <button class="add-room-btn" onclick="openNewRoomModal()" type="button">+ Add Room</button>
+            </div>
+        </div>
+
+        {% for amp in amps %}
+        <div class="rack-module amp-module" data-amp="{{ amp.id }}">
+            <div class="module-faceplate">
+                <div class="screw screw-tl"></div>
+                <div class="screw screw-bl"></div>
+                <div class="screw screw-tr"></div>
+                <div class="screw screw-br"></div>
+
+                <div class="module-meta">
+                    <div class="module-label">{{ amp.id }}</div>
+                    <div class="module-sub">{{ amp.card }}</div>
+                </div>
+                <div class="module-power" id="power-{{ amp.id }}">
+                    <span class="text-muted">…</span>
+                </div>
+
+                <div class="jacks-row">
+                    {% for ch in range(1, amp.channels + 1) %}
+                    <div class="jack jack-channel" data-amp="{{ amp.id }}" data-channel="{{ ch }}">
+                        <div class="jack-label">{{ ch }}</div>
+                        <div class="jack-port" data-jack-id="amp:{{ amp.id }}:{{ ch }}"></div>
+                        <button class="jack-test" tabindex="-1"
+                                onclick="event.stopPropagation(); testCell('{{ amp.id }}', {{ ch }})"
+                                title="Play test on this channel">▶</button>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
         </div>
         {% endfor %}
     </div>
-</div>
-{% endfor %}
 
-<!-- Rooms section -->
-<div class="section rooms-section">
-    <div class="rooms-header">
-        <h2>Rooms</h2>
-        <button class="btn btn-primary" onclick="openNewRoomModal()" type="button">+ New Room</button>
-    </div>
-    <div class="room-cards" id="room-cards"></div>
+    <svg class="cables-overlay" id="cables-overlay"></svg>
 </div>
 
-<!-- Replace/swap modal -->
+<!-- Conflict modal -->
 <div id="conflict-modal" class="modal hidden">
     <div class="modal-content">
         <div class="modal-header">
-            <h3 id="conflict-title">Replace assignment?</h3>
+            <h3 id="conflict-title">Replace cable?</h3>
             <button class="btn btn-small" onclick="closeConflictModal()" type="button">&times;</button>
         </div>
         <p id="conflict-body"></p>
@@ -117,38 +158,42 @@ let rooms = {{ rooms | tojson }};
 const initialSnapshot = JSON.stringify({speakers, rooms});
 
 let testMode = 'chime';
-let conflictResolution = null;  // pending drop awaiting user decision
-
-// Drag state
-let dragData = null;  // {kind: 'side', roomId, side} or {kind: 'cell', amp, channel}
-
-// Touch / tap-to-place state
-let tapSelection = null;  // {kind: 'side', roomId, side}
+let conflictResolution = null;
+let dragState = null;          // {fromJackId, fromRect, currentX, currentY, fromKind, fromMeta}
+let tapSelected = null;        // jack id or null
 
 // ============================================================
 // Utilities
 // ============================================================
-function setTestMode(m) { testMode = m; }
-
+function setTestMode(m) {
+    testMode = m;
+    const t = document.querySelector('.hw-toggle[data-value]:not(#all-amps-toggle)');
+    if (t) t.dataset.value = (m === 'tts') ? 'b' : 'a';
+}
+function cycleTestMode() {
+    setTestMode(testMode === 'chime' ? 'tts' : 'chime');
+}
+function cycleAllAmps() {
+    const t = document.getElementById('all-amps-toggle');
+    const cur = t?.dataset.value;
+    // Optimistically flip; setAllAmps refreshes from backend after.
+    const next = (cur === 'b') ? 'a' : 'b';
+    if (t) t.dataset.value = next;
+    setAllAmps(next === 'b' ? 'on' : 'off');
+}
 function isDirty() { return JSON.stringify({speakers, rooms}) !== initialSnapshot; }
 
 function colorForRoom(roomId) {
-    // Stable HSL from a string
     let h = 0;
     for (const c of roomId) h = ((h << 5) - h + c.charCodeAt(0)) | 0;
-    return `hsl(${Math.abs(h) % 360}, 60%, 60%)`;
+    return `hsl(${Math.abs(h) % 360}, 65%, 55%)`;
 }
 
-function speakerForRoomSide(roomId, side) {
-    const room = rooms[roomId];
-    if (!room) return null;
-    const spkId = room[side];
-    if (!spkId) return null;
-    return {id: spkId, ...speakers[spkId]};
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 function findCellAssignment(amp, channel) {
-    // Returns {roomId, side, speakerId} or null
     for (const [spkId, spk] of Object.entries(speakers)) {
         if (spk.amplifier === amp && spk.channel === channel) {
             for (const [rid, r] of Object.entries(rooms)) {
@@ -156,110 +201,205 @@ function findCellAssignment(amp, channel) {
                     if (r[side] === spkId) return {roomId: rid, side, speakerId: spkId};
                 }
             }
-            // Orphaned speaker (not referenced by any room) — shouldn't happen
-            // but show it so we don't lose it silently
             return {roomId: null, side: null, speakerId: spkId};
         }
     }
     return null;
 }
 
-function suggestSpeakerId(roomId, side) {
-    // Match existing convention: <room>_<side>
-    return `${roomId}_${side}`;
+function suggestSpeakerId(roomId, side) { return `${roomId}_${side}`; }
+
+// Parse a jack id of form "amp:<amp>:<ch>" or "room:<rid>:<side>"
+function parseJackId(id) {
+    const parts = id.split(':');
+    if (parts[0] === 'amp') return {kind: 'amp', amp: parts[1], channel: parseInt(parts[2], 10)};
+    if (parts[0] === 'room') return {kind: 'room', roomId: parts[1], side: parts[2]};
+    return null;
 }
+
+function jackIdForAssignment(amp, channel) { return `amp:${amp}:${channel}`; }
+function jackIdForRoomSide(rid, side) { return `room:${rid}:${side}`; }
 
 // ============================================================
 // Rendering
 // ============================================================
 function render() {
-    renderAmpCells();
-    renderRoomCards();
+    renderJacks();
+    renderRoomSlots();
+    requestAnimationFrame(renderCables);
     renderPendingBar();
 }
 
-function renderAmpCells() {
+function renderJacks() {
+    // Update each amp jack's "filled" visual based on whether it has a cable
     for (const amp of AMPS) {
         for (let ch = 1; ch <= amp.channels; ch++) {
-            const cell = document.querySelector(`.channel-cell[data-amp="${amp.id}"][data-channel="${ch}"]`);
+            const cell = document.querySelector(`.jack-channel[data-amp="${amp.id}"][data-channel="${ch}"]`);
             if (!cell) continue;
             const a = findCellAssignment(amp.id, ch);
-            const content = cell.querySelector('.channel-content');
-            cell.classList.toggle('assigned', !!a);
-            cell.classList.toggle('drop-target', !a);
-            cell.style.removeProperty('--room-color');
-            if (a && a.roomId) {
-                cell.style.setProperty('--room-color', colorForRoom(a.roomId));
-                const spk = speakers[a.speakerId] || {};
-                const vol = spk.volume ?? 100;
-                const room = rooms[a.roomId] || {};
-                content.innerHTML = `
-                    <div class="cell-room">${escapeHtml(room.name || a.roomId)}</div>
-                    <div class="cell-side">${a.side.toUpperCase()}</div>
-                    <div class="cell-vol">
-                        <input type="range" min="0" max="100" value="${vol}"
-                               oninput="onVolumeInput(this, '${a.speakerId}')">
-                        <span class="cell-vol-num">${vol}</span>
-                    </div>
-                    <div class="cell-buttons">
-                        <button class="btn btn-icon test-btn" onclick="testCell('${amp.id}', ${ch})" title="Play test">▶</button>
-                        <button class="btn btn-icon unassign-btn" onclick="unassignCell('${amp.id}', ${ch})" title="Unassign">×</button>
-                    </div>
-                `;
-            } else {
-                content.innerHTML = `<div class="cell-empty">empty</div>`;
-            }
+            cell.classList.toggle('connected', !!a);
+            cell.style.removeProperty('--cable-color');
+            if (a && a.roomId) cell.style.setProperty('--cable-color', colorForRoom(a.roomId));
         }
     }
 }
 
-function renderRoomCards() {
-    const container = document.getElementById('room-cards');
-    const cards = Object.entries(rooms)
-        .sort((a, b) => (a[1].name || a[0]).localeCompare(b[1].name || b[0]))
-        .map(([rid, room]) => {
-            const sides = ['left', 'right'];
-            if (room.sub) sides.push('sub');
-            const haveLeft = !!room.left;
-            const haveRight = !!room.right;
-            const status = (haveLeft && haveRight) ? 'complete'
-                         : (haveLeft || haveRight) ? 'partial' : 'empty';
-            const color = colorForRoom(rid);
-            const handles = sides.map(side => {
-                const placed = !!room[side];
-                return `
-                    <div class="room-handle ${placed ? 'placed' : 'unplaced'}"
-                         draggable="true"
-                         data-room="${rid}"
-                         data-side="${side}"
-                         onclick="onTapHandle('${rid}', '${side}')"
-                         title="Drag to a channel">
-                        <span class="handle-side">${side[0].toUpperCase()}</span>
-                    </div>
-                `;
-            }).join('');
-            const subBtn = room.sub
-                ? `<button class="btn btn-icon" onclick="removeSub('${rid}')" title="Remove sub">−sub</button>`
-                : `<button class="btn btn-icon" onclick="addSub('${rid}')" title="Add subwoofer">+ sub</button>`;
+function renderRoomSlots() {
+    const container = document.getElementById('room-slots');
+    if (!container) return;
+    const entries = Object.entries(rooms).sort((a, b) =>
+        (a[1].name || a[0]).localeCompare(b[1].name || b[0]));
+
+    if (!entries.length) {
+        container.innerHTML = '<div class="patch-empty">No rooms yet. Click "+ Add Room" to begin.</div>';
+        return;
+    }
+
+    container.innerHTML = entries.map(([rid, room]) => {
+        const sides = ['left', 'right'];
+        if (room.sub !== undefined) sides.push('sub');
+        const color = colorForRoom(rid);
+        const haveLeft = !!room.left;
+        const haveRight = !!room.right;
+        const status = (haveLeft && haveRight) ? 'complete'
+                     : (haveLeft || haveRight) ? 'partial' : 'empty';
+        const sideRows = sides.map(side => {
+            const spkId = room[side];
+            const spk = spkId ? speakers[spkId] : null;
+            const placed = !!spk;
+            const vol = spk?.volume ?? 100;
             return `
-                <div class="room-card" data-room="${rid}" style="--room-color: ${color}">
-                    <div class="room-card-header">
-                        <span class="room-name">${escapeHtml(room.name || rid)}</span>
-                        <span class="room-status status-${status}" title="${status}"></span>
+                <div class="room-side-row ${placed ? 'placed' : 'empty'}">
+                    <div class="jack jack-room ${placed ? 'connected' : ''}"
+                         data-room="${rid}" data-side="${side}"
+                         style="--cable-color: ${color}">
+                        <div class="jack-port" data-jack-id="${jackIdForRoomSide(rid, side)}"></div>
+                        <div class="jack-label">${side[0].toUpperCase()}</div>
                     </div>
-                    <div class="room-handles">${handles}</div>
-                    <div class="room-card-actions">
-                        <button class="btn btn-icon" onclick="testRoom('${rid}')" title="Play test">▶</button>
-                        ${subBtn}
-                        <button class="btn btn-icon" onclick="renameRoom('${rid}')" title="Rename">✎</button>
-                        <button class="btn btn-icon" onclick="deleteRoom('${rid}')" title="Delete room">🗑</button>
+                    <div class="side-controls">
+                        <input type="range" class="vol-slider" min="0" max="100"
+                               value="${vol}" ${placed ? '' : 'disabled'}
+                               oninput="onVolumeInput(this, '${spkId || ''}')">
+                        <span class="vol-num">${vol}</span>
+                        <button class="btn-side-test" ${placed ? '' : 'disabled'}
+                                onclick="testRoomSide('${rid}', '${side}')">▶</button>
                     </div>
                 </div>
             `;
         }).join('');
-    container.innerHTML = cards || '<p class="text-muted">No rooms yet. Click "+ New Room" to get started.</p>';
+
+        const subToggle = (room.sub === undefined)
+            ? `<button class="link-btn" onclick="addSub('${rid}')">+ sub</button>`
+            : `<button class="link-btn" onclick="removeSub('${rid}')">− sub</button>`;
+
+        return `
+            <div class="room-slot status-${status}" data-room="${rid}"
+                 style="--room-color: ${color}">
+                <div class="room-slot-header">
+                    <span class="room-status-dot"></span>
+                    <span class="room-name" onclick="renameRoom('${rid}')" title="Click to rename">${escapeHtml(room.name || rid)}</span>
+                    <div class="room-slot-actions">
+                        <button class="link-btn" onclick="testRoom('${rid}')" title="Stereo test"
+                                ${(haveLeft || haveRight) ? '' : 'disabled'}>▶ test</button>
+                        ${subToggle}
+                        <button class="link-btn danger" onclick="deleteRoom('${rid}')" title="Delete room">✕</button>
+                    </div>
+                </div>
+                <div class="room-sides">${sideRows}</div>
+            </div>
+        `;
+    }).join('');
 }
 
+// ============================================================
+// SVG cables
+// ============================================================
+function renderCables() {
+    const svg = document.getElementById('cables-overlay');
+    const rack = document.querySelector('.rack');
+    if (!svg || !rack) return;
+
+    const rackRect = rack.getBoundingClientRect();
+    svg.setAttribute('width', rackRect.width);
+    svg.setAttribute('height', rackRect.height);
+    svg.style.width = rackRect.width + 'px';
+    svg.style.height = rackRect.height + 'px';
+
+    const paths = [];
+
+    // Persistent cables: one per (amp_jack, room_jack) pair
+    for (const [rid, room] of Object.entries(rooms)) {
+        for (const side of ['left', 'right', 'sub']) {
+            const spkId = room[side];
+            if (!spkId) continue;
+            const spk = speakers[spkId];
+            if (!spk || spk.channel === undefined) continue;
+            const ampJack = document.querySelector(
+                `.jack-port[data-jack-id="${jackIdForAssignment(spk.amplifier, spk.channel)}"]`);
+            const roomJack = document.querySelector(
+                `.jack-port[data-jack-id="${jackIdForRoomSide(rid, side)}"]`);
+            if (!ampJack || !roomJack) continue;
+            const a = jackCenter(ampJack, rackRect);
+            const b = jackCenter(roomJack, rackRect);
+            const color = colorForRoom(rid);
+            paths.push(cablePath(a, b, color, false, `${rid}:${side}`));
+        }
+    }
+
+    // Live cable while dragging
+    if (dragState && dragState.fromJackId) {
+        const fromEl = document.querySelector(`.jack-port[data-jack-id="${dragState.fromJackId}"]`);
+        if (fromEl && dragState.currentX !== undefined) {
+            const a = jackCenter(fromEl, rackRect);
+            const b = {x: dragState.currentX - rackRect.left, y: dragState.currentY - rackRect.top};
+            const color = dragState.cableColor || '#3b82f6';
+            paths.push(cablePath(a, b, color, true, 'drag'));
+        }
+    }
+
+    svg.innerHTML = paths.join('');
+}
+
+function jackCenter(el, containerRect) {
+    const r = el.getBoundingClientRect();
+    return {
+        x: r.left - containerRect.left + r.width / 2,
+        y: r.top - containerRect.top + r.height / 2,
+    };
+}
+
+function cablePath(a, b, color, isDrag, key) {
+    // Cables exit each jack vertically (like real cables hanging out of
+    // sockets), then take a smooth S-curve toward the other end. The vertical
+    // departure pushes the cable into the inter-module gap before it travels
+    // sideways, which keeps it clear of module controls/labels.
+    const dy = b.y - a.y;
+    // departure distance — how far the cable hangs straight before curving.
+    // ~half the vertical span, capped, with a minimum so even short cables
+    // get a visible hang.
+    const dep = Math.max(28, Math.min(80, Math.abs(dy) / 2));
+    // sign of approach: cable always ENTERS the target jack from outside the
+    // target module. If b is below a, cable approaches b from above (so
+    // control point above b). And vice versa.
+    const aDir = dy >= 0 ? 1 : -1;   // a-side direction (down if b below)
+    const bDir = -aDir;              // b-side direction (up if a above)
+    const c1 = {x: a.x, y: a.y + aDir * dep};
+    const c2 = {x: b.x, y: b.y + bDir * dep};
+    const d = `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} C ${c1.x.toFixed(1)} ${c1.y.toFixed(1)} ${c2.x.toFixed(1)} ${c2.y.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+    const dash = isDrag ? `stroke-dasharray="6 4"` : '';
+    const colorOpacity = isDrag ? 0.85 : 0.92;
+    return `
+        <g class="cable-group" data-key="${key}" ${isDrag ? 'data-drag="1"' : ''}>
+            <path d="${d}" stroke="rgba(0,0,0,0.55)" stroke-width="9" fill="none" stroke-linecap="round"></path>
+            <path d="${d}" stroke="${color}" stroke-width="5.5" fill="none" stroke-linecap="round" ${dash} opacity="${colorOpacity}"></path>
+            <path d="${d}" stroke="rgba(255,255,255,0.25)" stroke-width="1.4" fill="none" stroke-linecap="round" pointer-events="none"></path>
+        </g>
+    `;
+}
+
+// ============================================================
+// Pending bar
+// ============================================================
 function renderPendingBar() {
     const dirty = isDirty();
     document.getElementById('pending-bar').classList.toggle('hidden', !dirty);
@@ -279,8 +419,6 @@ function computeChanges() {
     const oldSpeakers = initial.speakers || {};
     const oldRooms = initial.rooms || {};
     const changes = [];
-
-    // Per room: compare each side
     const allRoomIds = new Set([...Object.keys(oldRooms), ...Object.keys(rooms)]);
     for (const rid of allRoomIds) {
         const o = oldRooms[rid];
@@ -301,7 +439,6 @@ function computeChanges() {
             }
         }
     }
-    // Volume changes
     for (const [spkId, spk] of Object.entries(speakers)) {
         const old = oldSpeakers[spkId];
         if (old && old.volume !== spk.volume) {
@@ -311,42 +448,17 @@ function computeChanges() {
     return changes;
 }
 
-function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
-
 // ============================================================
-// Mutations (operate on local state; commit via Apply)
+// Mutations
 // ============================================================
 function ensureSpeaker(spkId, amp, channel) {
-    if (!speakers[spkId]) {
-        speakers[spkId] = {amplifier: amp, channel: channel, volume: 100, latency: 0};
-    } else {
-        speakers[spkId].amplifier = amp;
-        speakers[spkId].channel = channel;
-    }
-}
-
-function dropSideOnCell(roomId, side, amp, channel) {
-    // Returns {ok:true} or {conflict:{...}} for caller to display modal
-    const existing = findCellAssignment(amp, channel);
-    if (existing && existing.speakerId) {
-        // Channel already has an assignment
-        if (existing.roomId === roomId && existing.side === side) {
-            return {ok: true};  // no-op
-        }
-        // Conflict — caller decides
-        return {conflict: {amp, channel, existing, incoming: {roomId, side}}};
-    }
-    return commitAssign(roomId, side, amp, channel);
+    if (!speakers[spkId]) speakers[spkId] = {amplifier: amp, channel: channel, volume: 100, latency: 0};
+    else { speakers[spkId].amplifier = amp; speakers[spkId].channel = channel; }
 }
 
 function commitAssign(roomId, side, amp, channel) {
-    // 1. Remove this side's previous assignment for this room — keep volume
-    //    so a channel move doesn't reset the slider.
     const prevSpkId = rooms[roomId][side];
-    let prevVolume = 100;
-    let prevLatency = 0;
+    let prevVolume = 100, prevLatency = 0;
     if (prevSpkId) {
         if (speakers[prevSpkId]) {
             prevVolume = speakers[prevSpkId].volume ?? 100;
@@ -354,45 +466,30 @@ function commitAssign(roomId, side, amp, channel) {
         }
         delete speakers[prevSpkId];
     }
-    // 2. Create / update the speaker entry
     const spkId = suggestSpeakerId(roomId, side);
     ensureSpeaker(spkId, amp, channel);
     speakers[spkId].volume = prevVolume;
     speakers[spkId].latency = prevLatency;
-    // 3. Point the room at it
     rooms[roomId][side] = spkId;
-    // 4. Clean up: any other room that was using this exact (amp, ch) loses it
+    // Strip any orphan that was at (amp, ch)
     for (const [rid, r] of Object.entries(rooms)) {
         if (rid === roomId) continue;
         for (const s of ['left', 'right', 'sub']) {
             const sid = r[s];
             if (sid && speakers[sid] && speakers[sid].amplifier === amp && speakers[sid].channel === channel) {
-                delete speakers[sid];
-                r[s] = null;
+                delete speakers[sid]; r[s] = null;
             }
         }
     }
     render();
-    return {ok: true};
 }
 
 function commitSwap(roomId, side, amp, channel, existing) {
-    // Where was the incoming side previously? Remember its (amp, ch) so we can
-    // park the displaced one there.
     const incomingPrevSpkId = rooms[roomId][side];
     const incomingPrev = incomingPrevSpkId ? speakers[incomingPrevSpkId] : null;
-
-    // Detach existing from its room (if any)
-    if (existing.roomId) {
-        rooms[existing.roomId][existing.side] = null;
-    }
+    if (existing.roomId) rooms[existing.roomId][existing.side] = null;
     delete speakers[existing.speakerId];
-
-    // Place incoming on (amp, ch)
     commitAssign(roomId, side, amp, channel);
-
-    // If incoming had a previous channel and the displaced side has nowhere to
-    // live, move it there
     if (incomingPrev && existing.roomId) {
         commitAssign(existing.roomId, existing.side, incomingPrev.amplifier, incomingPrev.channel);
     }
@@ -400,30 +497,28 @@ function commitSwap(roomId, side, amp, channel, existing) {
 }
 
 function commitReplace(roomId, side, amp, channel, existing) {
-    if (existing.roomId) {
-        rooms[existing.roomId][existing.side] = null;
-    }
+    if (existing.roomId) rooms[existing.roomId][existing.side] = null;
     delete speakers[existing.speakerId];
     commitAssign(roomId, side, amp, channel);
 }
 
-function unassignCell(amp, channel) {
-    const a = findCellAssignment(amp, channel);
-    if (!a) return;
-    if (a.roomId) rooms[a.roomId][a.side] = null;
-    delete speakers[a.speakerId];
+function unplugCable(roomId, side) {
+    const spkId = rooms[roomId][side];
+    if (!spkId) return;
+    delete speakers[spkId];
+    rooms[roomId][side] = null;
     render();
 }
 
 function onVolumeInput(input, spkId) {
     const v = parseInt(input.value, 10);
-    input.parentElement.querySelector('.cell-vol-num').textContent = v;
-    if (speakers[spkId]) speakers[spkId].volume = v;
+    input.parentElement.querySelector('.vol-num').textContent = v;
+    if (spkId && speakers[spkId]) speakers[spkId].volume = v;
     renderPendingBar();
 }
 
 function addSub(roomId) {
-    if (!rooms[roomId].sub) rooms[roomId].sub = null;
+    if (rooms[roomId].sub === undefined) rooms[roomId].sub = null;
     render();
 }
 
@@ -437,15 +532,15 @@ function removeSub(roomId) {
 function renameRoom(roomId) {
     const cur = rooms[roomId].name || roomId;
     const next = prompt('Rename room', cur);
-    if (next && next !== cur) {
-        rooms[roomId].name = next;
+    if (next && next.trim() && next.trim() !== cur) {
+        rooms[roomId].name = next.trim();
         render();
     }
 }
 
 function deleteRoom(roomId) {
     const name = rooms[roomId].name || roomId;
-    if (!confirm(`Delete room "${name}"? This will unassign all its channels.`)) return;
+    if (!confirm(`Delete room "${name}"? All its cables will be removed.`)) return;
     for (const side of ['left', 'right', 'sub']) {
         const spk = rooms[roomId][side];
         if (spk) delete speakers[spk];
@@ -455,88 +550,181 @@ function deleteRoom(roomId) {
 }
 
 // ============================================================
-// Drag and drop
+// Drag (Pointer Events)
 // ============================================================
-function onDragStart(e) {
-    const handle = e.target.closest('.room-handle');
-    const cell = e.target.closest('.channel-cell.assigned');
-    if (handle) {
-        dragData = {kind: 'side', roomId: handle.dataset.room, side: handle.dataset.side};
-    } else if (cell) {
-        const a = findCellAssignment(cell.dataset.amp, parseInt(cell.dataset.channel, 10));
-        if (a && a.roomId) dragData = {kind: 'side', roomId: a.roomId, side: a.side, fromCell: true};
-    } else {
-        return;
-    }
-    document.body.classList.add('dragging');
-    if (e.dataTransfer) {
-        e.dataTransfer.effectAllowed = 'move';
-        try { e.dataTransfer.setData('text/plain', JSON.stringify(dragData)); } catch (_) {}
-    }
-}
+function isAmpJack(meta) { return meta && meta.kind === 'amp'; }
+function isRoomJack(meta) { return meta && meta.kind === 'room'; }
+function compatible(a, b) { return a && b && ((isAmpJack(a) && isRoomJack(b)) || (isRoomJack(a) && isAmpJack(b))); }
 
-function onDragEnd() {
-    dragData = null;
-    document.body.classList.remove('dragging');
-    document.querySelectorAll('.channel-cell.drag-over').forEach(c => c.classList.remove('drag-over'));
-}
-
-function onCellDragOver(e) {
-    if (!dragData) return;
+function pointerDownOnJack(e) {
+    const port = e.target.closest('.jack-port');
+    if (!port) return;
+    const jackId = port.dataset.jackId;
+    if (!jackId) return;
     e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-    e.currentTarget.classList.add('drag-over');
-}
+    const meta = parseJackId(jackId);
 
-function onCellDragLeave(e) {
-    e.currentTarget.classList.remove('drag-over');
-}
+    let cableColor = '#94a3b8';
+    let unplugInfo = null;
 
-function onCellDrop(e) {
-    e.preventDefault();
-    e.currentTarget.classList.remove('drag-over');
-    if (!dragData) return;
-    const cell = e.currentTarget;
-    const amp = cell.dataset.amp;
-    const channel = parseInt(cell.dataset.channel, 10);
-    handleDrop(dragData, amp, channel);
-}
-
-function handleDrop(data, amp, channel) {
-    if (data.kind !== 'side') return;
-    const result = dropSideOnCell(data.roomId, data.side, amp, channel);
-    if (result.conflict) {
-        showConflictModal(result.conflict);
+    if (isAmpJack(meta)) {
+        const a = findCellAssignment(meta.amp, meta.channel);
+        if (a && a.roomId) {
+            // Dragging from a connected amp jack: detach the room side and let
+            // the user re-route it.
+            cableColor = colorForRoom(a.roomId);
+            unplugInfo = {kind: 'fromAmp', roomId: a.roomId, side: a.side};
+            rooms[a.roomId][a.side] = null;
+            delete speakers[a.speakerId];
+        }
+    } else if (isRoomJack(meta)) {
+        const room = rooms[meta.roomId];
+        if (room && room[meta.side]) {
+            cableColor = colorForRoom(meta.roomId);
+            const spk = speakers[room[meta.side]];
+            unplugInfo = {kind: 'fromRoom', amp: spk?.amplifier, channel: spk?.channel};
+            const spkId = room[meta.side];
+            delete speakers[spkId];
+            room[meta.side] = null;
+        } else {
+            cableColor = colorForRoom(meta.roomId);
+        }
     }
+
+    dragState = {
+        fromJackId: jackId,
+        fromMeta: meta,
+        cableColor,
+        unplugInfo,
+        currentX: e.clientX,
+        currentY: e.clientY,
+    };
+    document.body.classList.add('dragging-cable');
+    render();
+}
+
+function pointerMove(e) {
+    if (!dragState) return;
+    dragState.currentX = e.clientX;
+    dragState.currentY = e.clientY;
+    // Highlight any jack we're hovering
+    document.querySelectorAll('.jack-port.hover').forEach(j => j.classList.remove('hover'));
+    const target = document.elementFromPoint(e.clientX, e.clientY);
+    const port = target?.closest('.jack-port');
+    if (port && port.dataset.jackId !== dragState.fromJackId) {
+        const targetMeta = parseJackId(port.dataset.jackId);
+        if (compatible(dragState.fromMeta, targetMeta)) port.classList.add('hover');
+    }
+    renderCables();
+}
+
+function pointerUp(e) {
+    if (!dragState) return;
+    const target = document.elementFromPoint(e.clientX, e.clientY);
+    const port = target?.closest('.jack-port');
+    let committed = false;
+    if (port) {
+        const targetMeta = parseJackId(port.dataset.jackId);
+        if (compatible(dragState.fromMeta, targetMeta)) {
+            // Resolve into (roomId, side, amp, channel)
+            let amp, channel, roomId, side;
+            if (isAmpJack(dragState.fromMeta)) {
+                amp = dragState.fromMeta.amp;
+                channel = dragState.fromMeta.channel;
+                roomId = targetMeta.roomId;
+                side = targetMeta.side;
+            } else {
+                amp = targetMeta.amp;
+                channel = targetMeta.channel;
+                roomId = dragState.fromMeta.roomId;
+                side = dragState.fromMeta.side;
+            }
+
+            // Conflict check: target jacks already in use by someone else?
+            const ampInUse = findCellAssignment(amp, channel);
+            const roomInUse = rooms[roomId]?.[side];
+            if (ampInUse && ampInUse.roomId && !(ampInUse.roomId === roomId && ampInUse.side === side)) {
+                showConflictModal({
+                    amp, channel,
+                    existing: ampInUse,
+                    incoming: {roomId, side},
+                });
+            } else if (roomInUse) {
+                // Room side has a cable; replace it
+                const oldSpk = speakers[roomInUse];
+                if (oldSpk) {
+                    const orphan = {speakerId: roomInUse, roomId: roomId, side: side};
+                    delete speakers[roomInUse];
+                    rooms[roomId][side] = null;
+                }
+                commitAssign(roomId, side, amp, channel);
+            } else {
+                commitAssign(roomId, side, amp, channel);
+            }
+            committed = true;
+        }
+    }
+
+    if (!committed) {
+        // Drop in empty space → keep the unplugged state (user pulled cable out)
+    }
+
+    dragState = null;
+    document.body.classList.remove('dragging-cable');
+    document.querySelectorAll('.jack-port.hover').forEach(j => j.classList.remove('hover'));
+    render();
 }
 
 // ============================================================
 // Tap-to-place fallback (touch / a11y)
 // ============================================================
-function onTapHandle(roomId, side) {
-    if (tapSelection && tapSelection.roomId === roomId && tapSelection.side === side) {
-        tapSelection = null;
-        document.body.classList.remove('tap-selecting');
-        document.querySelectorAll('.room-handle.tap-selected').forEach(h => h.classList.remove('tap-selected'));
+function jackTap(e) {
+    // If we already started a drag via pointer, ignore
+    if (dragState) return;
+    const port = e.target.closest('.jack-port');
+    if (!port) {
+        if (tapSelected) clearTapSelection();
         return;
     }
-    tapSelection = {kind: 'side', roomId, side};
-    document.body.classList.add('tap-selecting');
-    document.querySelectorAll('.room-handle.tap-selected').forEach(h => h.classList.remove('tap-selected'));
-    document.querySelector(`.room-handle[data-room="${roomId}"][data-side="${side}"]`)
-        ?.classList.add('tap-selected');
+    const id = port.dataset.jackId;
+    if (!id) return;
+    if (!tapSelected) {
+        tapSelected = id;
+        port.classList.add('tap-selected');
+        document.body.classList.add('tap-selecting');
+        return;
+    }
+    if (tapSelected === id) {
+        clearTapSelection();
+        return;
+    }
+    const a = parseJackId(tapSelected);
+    const b = parseJackId(id);
+    if (compatible(a, b)) {
+        const ampMeta = isAmpJack(a) ? a : b;
+        const roomMeta = isRoomJack(a) ? a : b;
+        const amp = ampMeta.amp, channel = ampMeta.channel;
+        const roomId = roomMeta.roomId, side = roomMeta.side;
+        const ampInUse = findCellAssignment(amp, channel);
+        if (ampInUse && ampInUse.roomId && !(ampInUse.roomId === roomId && ampInUse.side === side)) {
+            showConflictModal({amp, channel, existing: ampInUse, incoming: {roomId, side}});
+        } else {
+            // Replace any existing cable on that room side
+            const existingSpk = rooms[roomId]?.[side];
+            if (existingSpk) {
+                delete speakers[existingSpk];
+                rooms[roomId][side] = null;
+            }
+            commitAssign(roomId, side, amp, channel);
+        }
+    }
+    clearTapSelection();
 }
 
-function onCellClick(e) {
-    if (!tapSelection) return;
-    const cell = e.target.closest('.channel-cell');
-    if (!cell) return;
-    // Don't intercept clicks on internal buttons / sliders
-    if (e.target.closest('button, input')) return;
-    handleDrop(tapSelection, cell.dataset.amp, parseInt(cell.dataset.channel, 10));
-    tapSelection = null;
+function clearTapSelection() {
+    tapSelected = null;
     document.body.classList.remove('tap-selecting');
-    document.querySelectorAll('.room-handle.tap-selected').forEach(h => h.classList.remove('tap-selected'));
+    document.querySelectorAll('.jack-port.tap-selected').forEach(j => j.classList.remove('tap-selected'));
 }
 
 // ============================================================
@@ -548,11 +736,10 @@ function showConflictModal(conflict) {
     const exRoom = conflict.existing.roomId
         ? (rooms[conflict.existing.roomId]?.name || conflict.existing.roomId)
         : '(orphan)';
-    const swapBtn = document.getElementById('conflict-swap-btn');
-    swapBtn.disabled = !conflict.existing.roomId;
+    document.getElementById('conflict-swap-btn').disabled = !conflict.existing.roomId;
     document.getElementById('conflict-body').textContent =
-        `Channel ${conflict.amp}/${conflict.channel} is currently assigned to ${exRoom} ${conflict.existing.side?.toUpperCase() || ''}. ` +
-        `What should happen with the incoming ${incRoom} ${conflict.incoming.side.toUpperCase()}?`;
+        `${conflict.amp}/ch${conflict.channel} is already wired to ${exRoom} ${conflict.existing.side?.toUpperCase() || ''}. ` +
+        `Where should the new cable for ${incRoom} ${conflict.incoming.side.toUpperCase()} go?`;
     document.getElementById('conflict-modal').classList.remove('hidden');
 }
 
@@ -564,16 +751,13 @@ function closeConflictModal() {
 function resolveConflict(action) {
     if (!conflictResolution) return;
     const {amp, channel, existing, incoming} = conflictResolution;
-    if (action === 'swap') {
-        commitSwap(incoming.roomId, incoming.side, amp, channel, existing);
-    } else {
-        commitReplace(incoming.roomId, incoming.side, amp, channel, existing);
-    }
+    if (action === 'swap') commitSwap(incoming.roomId, incoming.side, amp, channel, existing);
+    else commitReplace(incoming.roomId, incoming.side, amp, channel, existing);
     closeConflictModal();
 }
 
 // ============================================================
-// Pending bar / Apply / Discard
+// Discard / Apply
 // ============================================================
 function togglePendingDetails() {
     document.getElementById('pending-details').classList.toggle('hidden');
@@ -600,7 +784,6 @@ async function applyChanges() {
             showToast('Apply failed: ' + (data.detail || r.statusText), true);
             return;
         }
-        // Refresh page to pick up the new initial snapshot
         const restarted = (data.services_restarted || []).length;
         const alsa = data.alsa_changed ? 'ALSA regenerated, ' : '';
         showToast(`Applied (${alsa}${restarted} service${restarted === 1 ? '' : 's'} restarted)`);
@@ -638,28 +821,59 @@ function createRoom(e) {
 }
 
 // ============================================================
-// Test buttons
+// Test buttons — pass current slider values so live volume preview works
 // ============================================================
+function volumeForCell(amp, channel) {
+    // If this (amp, channel) is bound to a speaker, return that speaker's
+    // current (possibly-pending) volume; otherwise null = full scale.
+    for (const [spkId, spk] of Object.entries(speakers)) {
+        if (spk.amplifier === amp && spk.channel === channel) return spk.volume ?? 100;
+    }
+    return null;
+}
+
 async function testCell(amp, channel) {
     try {
         await fetch('/api/test/channel', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({amplifier: amp, channel: channel, type: testMode}),
+            body: JSON.stringify({
+                amplifier: amp,
+                channel: channel,
+                type: testMode,
+                volume: volumeForCell(amp, channel),
+            }),
         });
     } catch (_) { showToast('Connection error', true); }
 }
 
 async function testRoom(roomId) {
+    const room = rooms[roomId];
+    if (!room) return;
+    const lSpk = room.left ? speakers[room.left] : null;
+    const rSpk = room.right ? speakers[room.right] : null;
     try {
         await fetch('/api/test/room', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({room: roomId, position: 'stereo'}),
+            body: JSON.stringify({
+                room: roomId,
+                position: 'stereo',
+                type: testMode,
+                volume_left: lSpk?.volume ?? null,
+                volume_right: rSpk?.volume ?? null,
+            }),
         });
     } catch (_) { showToast('Connection error', true); }
 }
 
+async function testRoomSide(roomId, side) {
+    const room = rooms[roomId];
+    const spk = room?.[side] ? speakers[room[side]] : null;
+    if (!spk) return;
+    return testCell(spk.amplifier, spk.channel);
+}
+
 // ============================================================
-// Amp power (kept from previous page)
+// Amp power
 // ============================================================
 async function setAmp(amp, state) {
     try {
@@ -688,32 +902,39 @@ async function loadAmpPower() {
     try {
         const r = await fetch('/api/system/powermanager');
         const data = await r.json();
+        let allOn = true, anyKnown = false;
         for (const [amp, info] of Object.entries(data.amps || {})) {
+            anyKnown = true;
             const el = document.getElementById(`power-${amp}`);
-            if (!el) continue;
             const isOn = info.state === 'on';
+            if (!isOn) allOn = false;
             const hasAudio = info.audio_active;
-            el.innerHTML = `
-                <span class="power-indicator ${isOn ? 'power-on' : 'power-off'}">${isOn ? 'ON' : 'OFF'}</span>
-                ${hasAudio ? '<span class="power-indicator power-audio">Audio</span>' : ''}
-                <button class="btn btn-small ${isOn ? 'btn-danger' : 'btn-success'}"
-                        onclick="setAmp('${amp}', '${isOn ? 'off' : 'on'}')">${isOn ? 'Turn Off' : 'Turn On'}</button>
-            `;
+            if (el) {
+                el.innerHTML = `
+                    <span class="led ${isOn ? 'led-on' : ''}" title="Power ${isOn ? 'on' : 'off'}"></span>
+                    <span class="led ${hasAudio ? 'led-audio' : ''}" title="${hasAudio ? 'Audio active' : 'No audio'}"></span>
+                    <button class="btn-side-test" onclick="setAmp('${amp}', '${isOn ? 'off' : 'on'}')"
+                            title="${isOn ? 'Turn off' : 'Turn on'}">⏻</button>
+                `;
+            }
         }
+        const tog = document.getElementById('all-amps-toggle');
+        if (tog && anyKnown) tog.dataset.value = allOn ? 'b' : 'a';
     } catch (_) { /* silent */ }
 }
 
 // ============================================================
 // Wire up DOM events
 // ============================================================
-document.addEventListener('dragstart', onDragStart);
-document.addEventListener('dragend', onDragEnd);
-document.querySelectorAll('.channel-cell').forEach(cell => {
-    cell.addEventListener('dragover', onCellDragOver);
-    cell.addEventListener('dragleave', onCellDragLeave);
-    cell.addEventListener('drop', onCellDrop);
-    cell.addEventListener('click', onCellClick);
-});
+const rackBody = document.getElementById('rack-body');
+rackBody.addEventListener('pointerdown', pointerDownOnJack);
+window.addEventListener('pointermove', pointerMove);
+window.addEventListener('pointerup', pointerUp);
+window.addEventListener('pointercancel', pointerUp);
+rackBody.addEventListener('click', jackTap);
+window.addEventListener('resize', () => requestAnimationFrame(renderCables));
+window.addEventListener('scroll', () => requestAnimationFrame(renderCables), {passive: true});
+
 document.getElementById('conflict-modal').addEventListener('click', e => {
     if (e.target.id === 'conflict-modal') closeConflictModal();
 });
@@ -721,7 +942,8 @@ document.getElementById('new-room-modal').addEventListener('click', e => {
     if (e.target.id === 'new-room-modal') closeNewRoomModal();
 });
 
-// Initial render + amp power load
+// Initial state
+setTestMode(testMode);  // sync toggle position with default
 render();
 loadAmpPower();
 setInterval(loadAmpPower, 5000);

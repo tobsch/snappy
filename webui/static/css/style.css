@@ -194,132 +194,6 @@ h2 {
     flex-wrap: wrap;
 }
 
-/* Channel Grid (drag-drop) */
-.channel-grid {
-    display: grid;
-    grid-template-columns: repeat(8, 1fr);
-    gap: 0.5rem;
-}
-
-@media (max-width: 900px) {
-    .channel-grid { grid-template-columns: repeat(4, 1fr); }
-}
-
-.channel-cell {
-    --room-color: var(--gray-300);
-    background: var(--gray-50);
-    border: 2px solid var(--gray-200);
-    border-radius: var(--radius);
-    padding: 0.5rem;
-    min-height: 110px;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    transition: border-color 0.15s, background 0.15s, transform 0.1s;
-}
-
-.channel-cell.drop-target {
-    border-style: dashed;
-    border-color: var(--gray-300);
-}
-
-.channel-cell.assigned {
-    border-color: var(--room-color);
-    background: color-mix(in srgb, var(--room-color) 12%, white);
-}
-
-body.dragging .channel-cell.drop-target,
-body.tap-selecting .channel-cell.drop-target {
-    border-color: var(--primary);
-    background: #eff6ff;
-}
-
-.channel-cell.drag-over {
-    border-color: var(--primary) !important;
-    background: #dbeafe !important;
-    transform: scale(1.03);
-}
-
-.channel-number {
-    position: absolute;
-    top: 0.25rem;
-    left: 0.5rem;
-    font-size: 0.75rem;
-    color: var(--gray-400);
-    font-weight: 600;
-}
-
-.channel-cell.assigned .channel-number { color: var(--gray-700); }
-
-.channel-content {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    margin-top: 0.9rem;
-    flex: 1;
-}
-
-.cell-empty {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex: 1;
-    color: var(--gray-400);
-    font-size: 0.75rem;
-    font-style: italic;
-}
-
-.cell-room {
-    font-size: 0.8rem;
-    font-weight: 600;
-    line-height: 1.1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.cell-side {
-    font-size: 0.65rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    color: var(--room-color);
-    filter: brightness(0.6);
-}
-
-.cell-vol {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    font-size: 0.65rem;
-}
-
-.cell-vol input[type="range"] {
-    flex: 1;
-    min-width: 0;
-}
-
-.cell-vol-num {
-    min-width: 22px;
-    text-align: right;
-    color: var(--gray-500);
-}
-
-.cell-buttons {
-    display: flex;
-    gap: 0.25rem;
-    margin-top: auto;
-}
-
-.cell-buttons .btn-icon {
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    font-size: 0.75rem;
-}
-
-.unassign-btn { background: var(--gray-100); }
-.unassign-btn:hover { background: var(--danger); color: white; }
-
 /* Test Mode Toggle */
 .test-mode-toggle {
     display: flex;
@@ -1195,10 +1069,14 @@ body.tap-selecting .channel-cell.drop-target {
     color: #1e40af;
 }
 
+
 /* ============================================================
-   Amplifiers page extras: pending bar, room cards, drag handles
+   Amplifiers page: 19" rack with patch panel + cables
    ============================================================ */
 
+.rack-title { color: var(--gray-200); }
+
+/* Pending bar */
 .pending-bar {
     position: sticky;
     top: 60px;
@@ -1208,155 +1086,526 @@ body.tap-selecting .channel-cell.drop-target {
     align-items: center;
     background: var(--warning);
     color: white;
-    padding: 0.75rem 1rem;
+    padding: 0.6rem 1rem;
     border-radius: var(--radius);
     margin-bottom: 1rem;
     box-shadow: var(--shadow);
 }
-
 .pending-bar.hidden { display: none; }
-
-.pending-summary {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-weight: 600;
-}
-
-.pending-toggle {
-    background: rgba(255,255,255,0.25);
-    border: none;
-    color: white;
-    border-radius: 4px;
-    width: 24px;
-    height: 24px;
-    cursor: pointer;
-}
-
+.pending-summary { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; }
+.pending-toggle { background: rgba(255,255,255,0.25); border: none; color: white; border-radius: 4px; width: 24px; height: 24px; cursor: pointer; }
 .pending-actions { display: flex; gap: 0.5rem; }
-
 .pending-details {
     background: white;
     border-radius: var(--radius);
-    padding: 0.75rem 1rem;
+    padding: 0.6rem 0.9rem;
     margin-bottom: 1rem;
     box-shadow: var(--shadow);
-    font-size: 0.85rem;
-    max-height: 250px;
+    font-size: 0.8rem;
+    max-height: 220px;
     overflow-y: auto;
 }
 .pending-details.hidden { display: none; }
-.pending-line { padding: 0.15rem 0; }
+.pending-line { padding: 0.1rem 0; }
 
-.amps-toolbar {
+/* The rack itself */
+.rack {
+    position: relative;
+    background:
+        linear-gradient(180deg, #1a1a1a 0%, #0f0f0f 100%);
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.08),
+        0 12px 30px rgba(0,0,0,0.45),
+        0 2px 0 rgba(255,255,255,0.04);
+    border: 1px solid #000;
+}
+
+/* Rack header strip */
+.rack-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 1rem;
+    padding: 6px 10px 12px;
+    color: #cbd5e1;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    border-bottom: 1px solid #000;
+    margin-bottom: 12px;
 }
 
-.amp-section { padding: 1rem 1.5rem; }
+.rack-brand {
+    letter-spacing: 0.18em;
+    font-size: 0.78rem;
+    color: #94a3b8;
+    text-shadow: 0 1px 0 rgba(0,0,0,0.6);
+}
 
-/* Rooms section */
-.rooms-section { padding-top: 1rem; }
-.rooms-header {
-    display: flex;
-    justify-content: space-between;
+.rack-controls { display: flex; align-items: center; gap: 1rem; }
+
+/* Hardware-style two-position toggle (rocker / slide switch) */
+.hw-toggle {
+    display: inline-flex;
+    flex-direction: column;
     align-items: center;
-    margin-bottom: 1rem;
+    gap: 4px;
+    user-select: none;
+}
+.hw-toggle-label {
+    font-size: 0.6rem;
+    letter-spacing: 0.18em;
+    color: #6b7280;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+.hw-toggle-track {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 132px;
+    height: 28px;
+    border-radius: 14px;
+    background:
+        linear-gradient(180deg, #0a0d12 0%, #1a1f26 100%);
+    border: 1px solid #000;
+    box-shadow:
+        inset 0 2px 4px rgba(0,0,0,0.85),
+        0 1px 0 rgba(255,255,255,0.06);
+    cursor: pointer;
+    overflow: hidden;
+    padding: 0 8px;
+    outline: none;
+}
+.hw-toggle-track:focus-visible {
+    box-shadow:
+        inset 0 2px 4px rgba(0,0,0,0.85),
+        0 0 0 2px var(--primary);
+}
+.hw-toggle-pos {
+    flex: 1;
+    text-align: center;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: #4b5563;
+    transition: color 0.18s ease;
+    z-index: 1;
+}
+.hw-toggle-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: calc(50% - 2px);
+    height: 24px;
+    border-radius: 12px;
+    background:
+        linear-gradient(180deg, #f1f5f9 0%, #94a3b8 60%, #64748b 100%);
+    box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.7),
+        inset 0 -2px 3px rgba(0,0,0,0.4),
+        0 2px 4px rgba(0,0,0,0.6);
+    transition: left 0.22s cubic-bezier(0.7, -0.1, 0.3, 1.1), background 0.2s;
 }
 
-.room-cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 0.75rem;
+/* Position A (left) — default */
+.hw-toggle[data-value="chime"] .hw-toggle-knob,
+.hw-toggle[data-value="off"] .hw-toggle-knob,
+.hw-toggle[data-value="a"] .hw-toggle-knob { left: 2px; }
+.hw-toggle[data-value="chime"] .hw-toggle-pos-a,
+.hw-toggle[data-value="off"] .hw-toggle-pos-a,
+.hw-toggle[data-value="a"] .hw-toggle-pos-a { color: #f1f5f9; text-shadow: 0 1px 0 rgba(0,0,0,0.6); }
+
+/* Position B (right) */
+.hw-toggle[data-value="tts"] .hw-toggle-knob,
+.hw-toggle[data-value="on"] .hw-toggle-knob,
+.hw-toggle[data-value="b"] .hw-toggle-knob { left: calc(50%); }
+.hw-toggle[data-value="tts"] .hw-toggle-pos-b,
+.hw-toggle[data-value="on"] .hw-toggle-pos-b,
+.hw-toggle[data-value="b"] .hw-toggle-pos-b { color: #f1f5f9; text-shadow: 0 1px 0 rgba(0,0,0,0.6); }
+
+/* Glow tint when amps are on (green) */
+#all-amps-toggle[data-value="on"] .hw-toggle-knob,
+#all-amps-toggle[data-value="b"] .hw-toggle-knob {
+    background: linear-gradient(180deg, #d1fae5 0%, #34d399 60%, #059669 100%);
+    box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.6),
+        inset 0 -2px 3px rgba(0,0,0,0.45),
+        0 0 8px rgba(34,197,94,0.55),
+        0 2px 4px rgba(0,0,0,0.6);
 }
 
-.room-card {
-    --room-color: var(--gray-400);
-    background: white;
-    border: 2px solid var(--room-color);
-    border-radius: var(--radius);
-    padding: 0.75rem;
-    box-shadow: var(--shadow);
+/* Rack body holds the modules. Cables are drawn ON TOP of the modules so
+   the user sees them weaving across the rack (Reason vibe). To avoid cables
+   blocking controls, the bezier exits each jack vertically and only departs
+   sideways once it's clear of the module's faceplate — see cablePath() in
+   amplifiers.html. Wider gap gives cables somewhere to drape. */
+.rack-body {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 30px;
+    position: relative;
+    z-index: 1;
 }
 
-.room-card-header {
+/* SVG overlay: full-rack canvas, sits above modules. */
+.cables-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 5;
+}
+.cables-overlay path { pointer-events: none; }
+.cable-group {
+    filter: drop-shadow(0 3px 4px rgba(0,0,0,0.55));
+    mix-blend-mode: normal;
+}
+
+/* Rack module: brushed-metal faceplate */
+.rack-module {
+    position: relative;
+}
+
+.module-faceplate {
+    position: relative;
+    background:
+        linear-gradient(180deg, #2b2f33 0%, #1f2226 100%),
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.02) 0 1px, transparent 1px 3px);
+    background-blend-mode: overlay;
+    border: 1px solid #000;
+    border-radius: 8px;
+    padding: 12px 56px;  /* leave room for screws */
+    color: #e5e7eb;
+    box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.06),
+        inset 0 -1px 0 rgba(0,0,0,0.4),
+        0 2px 4px rgba(0,0,0,0.5);
     display: flex;
-    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    min-height: 70px;
+    flex-wrap: wrap;
+}
+
+/* Hardware screws at corners */
+.screw {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle at 30% 30%, #5b6270, #2c2f33 70%, #111 100%);
+    box-shadow:
+        inset 0 -1px 1px rgba(0,0,0,0.6),
+        inset 0 1px 0 rgba(255,255,255,0.18);
+}
+.screw::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 18%;
+    right: 18%;
+    height: 2px;
+    background: #111;
+    transform: translateY(-50%) rotate(35deg);
+    border-radius: 1px;
+}
+.screw-tl { top: 8px; left: 8px; }
+.screw-tr { top: 8px; right: 8px; }
+.screw-bl { bottom: 8px; left: 8px; }
+.screw-br { bottom: 8px; right: 8px; }
+
+/* Module label — like a Reason device name */
+.module-meta {
+    min-width: 130px;
+    flex-shrink: 0;
+}
+.module-label {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: #f1f5f9;
+    text-shadow: 0 1px 0 rgba(0,0,0,0.7);
+}
+.module-sub {
+    font-size: 0.7rem;
+    color: #94a3b8;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+/* Module power: tiny LEDs + on/off button */
+.module-power {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-shrink: 0;
+}
+.led {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #2c2f33;
+    box-shadow: inset 0 0 2px rgba(0,0,0,0.7);
+    transition: background 0.2s, box-shadow 0.2s;
+}
+.led-on {
+    background: #22c55e;
+    box-shadow: 0 0 6px rgba(34,197,94,0.8), inset 0 0 2px rgba(0,0,0,0.7);
+}
+.led-audio {
+    background: #3b82f6;
+    box-shadow: 0 0 6px rgba(59,130,246,0.8), inset 0 0 2px rgba(0,0,0,0.7);
+}
+
+.btn-side-test {
+    background: #1f2937;
+    border: 1px solid #000;
+    color: #cbd5e1;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.7rem;
+    cursor: pointer;
+    line-height: 1;
+}
+.btn-side-test:hover:not(:disabled) { background: #334155; }
+.btn-side-test:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Jack rows on amp modules */
+.jacks-row {
+    display: flex;
+    gap: 6px;
+    flex: 1;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     align-items: center;
 }
 
-.room-name {
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.room-status {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    flex-shrink: 0;
-}
-.room-status.status-complete { background: var(--success); }
-.room-status.status-partial { background: var(--warning); }
-.room-status.status-empty { background: var(--gray-300); }
-
-.room-handles {
+.jack {
+    --cable-color: #475569;
     display: flex;
-    gap: 0.4rem;
-}
-
-.room-handle {
-    flex: 1;
-    background: var(--room-color);
-    color: white;
-    border-radius: var(--radius);
-    padding: 0.5rem;
-    text-align: center;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 4px;
+    border-radius: 6px;
     cursor: grab;
     user-select: none;
-    transition: transform 0.1s, opacity 0.15s, box-shadow 0.15s;
+    transition: transform 0.1s;
 }
-.room-handle:hover { transform: translateY(-1px); }
-.room-handle:active { cursor: grabbing; }
+.jack:active { cursor: grabbing; }
+.jack:hover .jack-port { box-shadow: 0 0 0 3px rgba(59,130,246,0.4), inset 0 2px 3px rgba(0,0,0,0.7); }
 
-.room-handle.placed { opacity: 0.55; }
-.room-handle.unplaced {
-    box-shadow: 0 0 0 2px white, 0 0 0 4px var(--warning);
-}
+.jack-channel { min-width: 40px; }
 
-.room-handle.tap-selected {
-    box-shadow: 0 0 0 3px var(--primary);
-    transform: scale(1.05);
-}
-
-.handle-side {
-    font-weight: 700;
-    font-size: 0.9rem;
-    letter-spacing: 0.05em;
+.jack-label {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.65rem;
+    color: #94a3b8;
+    letter-spacing: 0.04em;
 }
 
-.room-card-actions {
-    display: flex;
-    gap: 0.25rem;
-    justify-content: flex-end;
+/* The actual jack port — the connectable circle */
+.jack-port {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle at 50% 35%, #1a1a1a 0%, #000 70%),
+        radial-gradient(circle at 50% 50%, var(--cable-color) 0%, var(--cable-color) 30%, transparent 50%);
+    border: 2px solid #1c1f23;
+    box-shadow:
+        inset 0 2px 4px rgba(0,0,0,0.85),
+        0 1px 0 rgba(255,255,255,0.06);
+    position: relative;
+    flex-shrink: 0;
 }
-.room-card-actions .btn-icon {
-    width: 28px;
-    height: 28px;
+
+/* When connected, the port shows the cable color in its center */
+.jack.connected .jack-port {
+    background:
+        radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--cable-color) 70%, white) 0%, var(--cable-color) 50%, color-mix(in srgb, var(--cable-color) 60%, black) 80%);
+    box-shadow:
+        inset 0 2px 4px rgba(0,0,0,0.85),
+        0 0 6px var(--cable-color);
+    border-color: #000;
+}
+
+.jack-port.hover {
+    box-shadow:
+        0 0 0 3px var(--primary),
+        inset 0 2px 4px rgba(0,0,0,0.85);
+}
+
+.jack-port.tap-selected {
+    box-shadow:
+        0 0 0 3px var(--primary),
+        0 0 12px var(--primary),
+        inset 0 2px 4px rgba(0,0,0,0.85);
+}
+
+/* Per-channel test button (shown below jack on amp module) */
+.jack-test {
+    margin-top: 2px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #64748b;
+    border-radius: 3px;
+    width: 18px;
+    height: 14px;
+    font-size: 0.55rem;
+    line-height: 1;
+    cursor: pointer;
     padding: 0;
-    font-size: 0.85rem;
+}
+.jack-test:hover { color: white; background: #334155; }
+
+/* Patch panel module */
+.patch-panel .module-faceplate {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.8rem;
+    padding: 14px 56px;
+}
+.patch-panel .module-meta {
+    text-align: left;
 }
 
-/* Drag affordance: dim the page while dragging, highlight valid targets */
-body.dragging .room-card,
-body.tap-selecting .room-card { pointer-events: none; }
-body.dragging .room-handle,
-body.tap-selecting .room-handle { pointer-events: auto; }
+.room-slots {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+    gap: 12px;
+    width: 100%;
+}
+
+.room-slot {
+    --room-color: var(--gray-400);
+    background: linear-gradient(180deg, #1a1d21 0%, #0f1115 100%);
+    border: 1px solid #000;
+    border-left: 3px solid var(--room-color);
+    border-radius: 6px;
+    padding: 8px 10px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+.room-slot-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+}
+
+.room-status-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    background: var(--gray-500);
+}
+.room-slot.status-complete .room-status-dot { background: var(--success); box-shadow: 0 0 4px var(--success); }
+.room-slot.status-partial .room-status-dot { background: var(--warning); box-shadow: 0 0 4px var(--warning); }
+.room-slot.status-empty .room-status-dot { background: var(--gray-600); }
+
+.room-name {
+    flex: 1;
+    color: #f1f5f9;
+    font-weight: 600;
+    font-size: 0.85rem;
+    cursor: pointer;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.room-name:hover { color: white; text-decoration: underline dotted; }
+
+.room-slot-actions {
+    display: flex; gap: 0.3rem;
+}
+
+.link-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 0.7rem;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+.link-btn:hover { color: white; background: rgba(255,255,255,0.06); }
+.link-btn.danger:hover { color: white; background: var(--danger); }
+
+.room-sides {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.room-side-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.room-side-row.empty { opacity: 0.7; }
+
+.room-side-row .jack {
+    flex-direction: row;
+    gap: 6px;
+    padding: 2px;
+}
+.room-side-row .jack-label {
+    font-weight: 700;
+    color: #cbd5e1;
+    width: 14px;
+    text-align: center;
+}
+
+.side-controls {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.vol-slider {
+    flex: 1;
+    accent-color: var(--primary);
+    height: 12px;
+    min-width: 0;
+}
+.vol-slider:disabled { opacity: 0.3; }
+.vol-num {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.65rem;
+    color: #94a3b8;
+    min-width: 22px;
+    text-align: right;
+}
+
+.add-room-btn {
+    background: transparent;
+    border: 1px dashed #475569;
+    color: #94a3b8;
+    border-radius: 6px;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: all 0.15s;
+    align-self: flex-start;
+}
+.add-room-btn:hover { border-color: var(--primary); color: white; background: rgba(59,130,246,0.1); }
+
+.patch-empty {
+    color: #64748b;
+    font-style: italic;
+    text-align: center;
+    padding: 1rem;
+}
+
+/* Cable drag affordance */
+body.dragging-cable .jack-port:not([data-jack-id]) { cursor: grabbing; }
+body.dragging-cable, body.tap-selecting { cursor: crosshair; }
+body.dragging-cable .room-slot,
+body.tap-selecting .room-slot { /* keep slots clickable */ }
+
+/* Mobile: rack stays single column, modules stack */
+@media (max-width: 700px) {
+    .module-faceplate { padding: 10px 36px; }
+    .screw-tl, .screw-bl { left: 4px; }
+    .screw-tr, .screw-br { right: 4px; }
+    .jacks-row { justify-content: center; }
+    .room-slots { grid-template-columns: 1fr; }
+}

@@ -183,18 +183,19 @@ async def update_global(request: Request, data: GlobalUpdate):
 class ChannelTestRequest(BaseModel):
     amplifier: str
     channel: int
-    type: str = "chime"  # "tts" or "chime"
+    type: str = "chime"            # "tts" or "chime"
+    volume: int | None = None      # 0..100 to live-preview slider; None = full
 
 
 @router.post("/test/channel")
 async def test_channel(request: Request, data: ChannelTestRequest):
-    """Play test sound on a channel"""
+    """Play test sound on a channel; honors slider volume if provided."""
     audio_svc = get_audio_service(request)
 
     if data.type == "tts":
-        success = await audio_svc.play_tts(data.amplifier, data.channel)
+        success = await audio_svc.play_tts(data.amplifier, data.channel, data.volume)
     else:
-        success = await audio_svc.play_chime(data.amplifier, data.channel)
+        success = await audio_svc.play_chime(data.amplifier, data.channel, data.volume)
 
     if not success:
         raise HTTPException(status_code=500, detail="Playback failed")
@@ -204,14 +205,46 @@ async def test_channel(request: Request, data: ChannelTestRequest):
 
 class RoomTestRequest(BaseModel):
     room: str
-    position: str = "stereo"  # "left", "right", or "stereo"
+    position: str = "stereo"           # "left", "right", or "stereo"
+    type: str = "chime"                # "tts" or "chime"
+    volume_left: int | None = None     # live slider preview
+    volume_right: int | None = None
 
 
 @router.post("/test/room")
 async def test_room(request: Request, data: RoomTestRequest):
-    """Play test sound on a room"""
+    """Play test sound on a room — fans out to per-channel devices so each
+    side gets its own live slider gain."""
     audio_svc = get_audio_service(request)
-    success = await audio_svc.play_room_test(data.room, data.position)
+    config_svc = get_config_service(request)
+
+    room = config_svc.get_room(data.room)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    def lookup(side: str):
+        spk_id = room.get(side)
+        if not spk_id:
+            return None, None
+        spk = config_svc.get_speaker(spk_id)
+        if not spk:
+            return None, None
+        return spk.get("amplifier"), spk.get("channel")
+
+    left_amp, left_ch = (None, None)
+    right_amp, right_ch = (None, None)
+    if data.position in ("stereo", "left"):
+        left_amp, left_ch = lookup("left")
+    if data.position in ("stereo", "right"):
+        right_amp, right_ch = lookup("right")
+
+    text = f"{room.get('name', data.room)}"
+    success = await audio_svc.play_room_stereo(
+        left_amp, left_ch, data.volume_left,
+        right_amp, right_ch, data.volume_right,
+        sound=data.type,
+        text=text,
+    )
 
     if not success:
         raise HTTPException(status_code=500, detail="Playback failed")
