@@ -88,14 +88,14 @@ async def write_asound_conf(content: str, target: str = "/etc/asound.conf") -> b
     return True
 
 
-async def restart_services(units: list[str]) -> dict[str, str]:
-    """Restart given systemd units in parallel. Returns map of unit → status."""
+async def systemctl_action(action: str, units: list[str]) -> dict[str, str]:
+    """Run a single systemctl action against the given units in parallel."""
     if not units:
         return {}
 
     async def one(unit: str) -> tuple[str, str]:
         proc = await asyncio.create_subprocess_exec(
-            "sudo", "-n", "systemctl", "restart", unit,
+            "sudo", "-n", "systemctl", action, unit,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -104,8 +104,20 @@ async def restart_services(units: list[str]) -> dict[str, str]:
             return unit, "ok"
         return unit, f"failed: {stderr.decode().strip()}"
 
-    results = await asyncio.gather(*(one(u) for u in units))
-    return dict(results)
+    return dict(await asyncio.gather(*(one(u) for u in units)))
+
+
+async def restart_services(units: list[str]) -> dict[str, str]:
+    return await systemctl_action("restart", units)
+
+
+def room_has_speakers(room: dict | None) -> bool:
+    if not room:
+        return False
+    for side in ("left", "right", "sub"):
+        if room.get(side):
+            return True
+    return False
 
 
 async def apply_config(project_dir: Path, old_config: dict, new_config: dict) -> dict:
@@ -117,6 +129,7 @@ async def apply_config(project_dir: Path, old_config: dict, new_config: dict) ->
     result: dict = {
         "alsa_changed": False,
         "services_restarted": [],
+        "services_stopped": [],
         "service_results": {},
     }
 
@@ -124,25 +137,46 @@ async def apply_config(project_dir: Path, old_config: dict, new_config: dict) ->
     alsa = await regenerate_alsa(project_dir)
     result["alsa_changed"] = await write_asound_conf(alsa)
 
-    # 3: figure out which sendspin services changed
-    rooms = affected_rooms(old_config, new_config)
-    units = [f"sendspin@room_{r}.service" for r in rooms]
+    # 3: split affected rooms into "still has speakers" (restart) vs "no
+    # longer has any speaker / removed entirely" (stop). Keeping a sendspin
+    # service running for a room with no ALSA device just produces a crash
+    # loop because the device doesn't exist in the regenerated asound.conf.
+    new_rooms = new_config.get("rooms", {})
+    affected = affected_rooms(old_config, new_config)
 
-    # Only restart units that have a loaded/active instance. `list-unit-files`
-    # doesn't show instance units; `is-active` returns "active"/"inactive" for
-    # known instances and "unknown" otherwise.
-    existing = []
-    for unit in units:
-        proc = await asyncio.create_subprocess_exec(
-            "systemctl", "is-active", unit,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        out, _ = await proc.communicate()
-        state = out.decode().strip()
-        if state and state != "unknown":
-            existing.append(unit)
+    to_restart: list[str] = []
+    to_stop: list[str] = []
+    for rid in affected:
+        unit = f"sendspin@room_{rid}.service"
+        if room_has_speakers(new_rooms.get(rid)):
+            to_restart.append(unit)
+        else:
+            to_stop.append(unit)
 
-    result["services_restarted"] = existing
-    result["service_results"] = await restart_services(existing)
+    # Only act on units that have a loaded instance. `list-unit-files` doesn't
+    # cover template instances; `is-active` returns "active"/"inactive"/"failed"
+    # for known instances and "unknown" otherwise.
+    async def known(units: list[str]) -> list[str]:
+        keep = []
+        for unit in units:
+            proc = await asyncio.create_subprocess_exec(
+                "systemctl", "is-active", unit,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            out, _ = await proc.communicate()
+            state = out.decode().strip()
+            if state and state != "unknown":
+                keep.append(unit)
+        return keep
+
+    restart_real = await known(to_restart)
+    stop_real = await known(to_stop)
+
+    restart_results = await systemctl_action("restart", restart_real)
+    stop_results = await systemctl_action("stop", stop_real)
+
+    result["services_restarted"] = restart_real
+    result["services_stopped"] = stop_real
+    result["service_results"] = {**restart_results, **stop_results}
     return result
