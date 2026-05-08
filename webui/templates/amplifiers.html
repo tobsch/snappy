@@ -102,6 +102,11 @@
                     <div class="jack jack-channel" data-amp="{{ amp.id }}" data-channel="{{ ch }}">
                         <div class="jack-label">{{ ch }}</div>
                         <div class="jack-port" data-jack-id="amp:{{ amp.id }}:{{ ch }}"></div>
+                        <input type="range" class="channel-fader" orient="vertical"
+                               min="0" max="100" value="100" disabled
+                               data-amp="{{ amp.id }}" data-channel="{{ ch }}"
+                               oninput="onChannelFaderInput(this)">
+                        <span class="channel-vol-num" id="vol-num-{{ amp.id }}-{{ ch }}">–</span>
                         <button class="jack-test" tabindex="-1"
                                 onclick="event.stopPropagation(); testCell('{{ amp.id }}', {{ ch }})"
                                 title="Play test on this channel">▶</button>
@@ -265,7 +270,8 @@ function render() {
 }
 
 function renderJacks() {
-    // Update each amp jack's "filled" visual based on whether it has a cable
+    // Update each amp jack's "filled" visual + bind its channel fader to the
+    // assigned speaker's volume (or disable it if the jack is empty).
     for (const amp of AMPS) {
         for (let ch = 1; ch <= amp.channels; ch++) {
             const cell = document.querySelector(`.jack-channel[data-amp="${amp.id}"][data-channel="${ch}"]`);
@@ -274,8 +280,33 @@ function renderJacks() {
             cell.classList.toggle('connected', !!a);
             cell.style.removeProperty('--cable-color');
             if (a && a.roomId) cell.style.setProperty('--cable-color', colorForRoom(a.roomId));
+
+            const fader = cell.querySelector('.channel-fader');
+            const num = cell.querySelector('.channel-vol-num');
+            if (a && a.speakerId && speakers[a.speakerId]) {
+                const v = speakers[a.speakerId].volume ?? 100;
+                fader.disabled = false;
+                fader.value = v;
+                num.textContent = v;
+            } else {
+                fader.disabled = true;
+                fader.value = 100;
+                num.textContent = '–';
+            }
         }
     }
+}
+
+function onChannelFaderInput(input) {
+    const amp = input.dataset.amp;
+    const ch = parseInt(input.dataset.channel, 10);
+    const a = findCellAssignment(amp, ch);
+    if (!a || !a.speakerId || !speakers[a.speakerId]) return;
+    const v = parseInt(input.value, 10);
+    speakers[a.speakerId].volume = v;
+    const num = document.getElementById(`vol-num-${amp}-${ch}`);
+    if (num) num.textContent = v;
+    renderPendingBar();
 }
 
 function renderRoomSlots() {
@@ -301,7 +332,6 @@ function renderRoomSlots() {
             const spkId = room[side];
             const spk = spkId ? speakers[spkId] : null;
             const placed = !!spk;
-            const vol = spk?.volume ?? 100;
             return `
                 <div class="room-side-row ${placed ? 'placed' : 'empty'}">
                     <div class="jack jack-room ${placed ? 'connected' : ''}"
@@ -310,14 +340,9 @@ function renderRoomSlots() {
                         <div class="jack-port" data-jack-id="${jackIdForRoomSide(rid, side)}"></div>
                         <div class="jack-label">${side[0].toUpperCase()}</div>
                     </div>
-                    <div class="side-controls">
-                        <input type="range" class="vol-slider" min="0" max="100"
-                               value="${vol}" ${placed ? '' : 'disabled'}
-                               oninput="onVolumeInput(this, '${spkId || ''}')">
-                        <span class="vol-num">${vol}</span>
-                        <button class="btn-side-test" ${placed ? '' : 'disabled'}
-                                onclick="testRoomSide('${rid}', '${side}')">▶</button>
-                    </div>
+                    <button class="btn-side-test" ${placed ? '' : 'disabled'}
+                            onclick="testRoomSide('${rid}', '${side}')"
+                            title="Play test on this side">▶</button>
                 </div>
             `;
         }).join('');

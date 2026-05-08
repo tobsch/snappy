@@ -1715,3 +1715,38 @@ body.tap-selecting .room-slot { /* keep slots clickable */ }
 }
 .addamp-form input[name="amp_id"] { width: 90px; }
 .addamp-form input[name="channels"] { width: 60px; }
+
+/* Per-channel vertical fader on amp modules — mixer channel strip vibe */
+.jack-channel {
+    /* taller cells now that we host a fader */
+    padding-bottom: 2px;
+}
+.channel-fader {
+    /* Cross-browser vertical range:
+       Chrome/Safari: -webkit-appearance: slider-vertical
+       Firefox/modern: writing-mode + direction
+       Plus the legacy `orient="vertical"` HTML attribute on the element */
+    -webkit-appearance: slider-vertical;
+    appearance: slider-vertical;
+    writing-mode: vertical-lr;
+    direction: rtl;            /* high value at top */
+    width: 14px;
+    height: 70px;
+    margin: 2px 0 0;
+    accent-color: var(--cable-color, #475569);
+    background: transparent;
+    cursor: pointer;
+}
+.channel-fader:disabled {
+    opacity: 0.25;
+    cursor: not-allowed;
+}
+.channel-vol-num {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.55rem;
+    color: #94a3b8;
+    margin-top: 1px;
+    min-height: 0.7rem;
+    line-height: 1;
+}
+.jack-channel.connected .channel-vol-num { color: #cbd5e1; }
