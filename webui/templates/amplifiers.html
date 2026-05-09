@@ -235,7 +235,19 @@ const AMPS = {{ amps | tojson }};
 let speakers = {{ speakers | tojson }};
 let rooms = {{ rooms | tojson }};
 let maxVolume = {{ max_volume | tojson }};   // 0..1
-const initialSnapshot = JSON.stringify({speakers, rooms, maxVolume});
+
+// Volume edits are live-saved (no Apply). The pending-diff snapshot
+// strips the per-speaker .volume field so volume changes don't dirty
+// the bar; structural edits (amp/channel/rooms/maxVolume) still do.
+function structuralSnapshot() {
+    const stripped = {};
+    for (const [k, v] of Object.entries(speakers)) {
+        const {volume, ...rest} = v;
+        stripped[k] = rest;
+    }
+    return JSON.stringify({speakers: stripped, rooms, maxVolume});
+}
+const initialSnapshot = structuralSnapshot();
 
 let testMode = 'chime';
 let conflictResolution = null;
@@ -261,7 +273,7 @@ function cycleAllAmps() {
     if (t) t.dataset.value = next;
     setAllAmps(next === 'b' ? 'on' : 'off');
 }
-function isDirty() { return JSON.stringify({speakers, rooms, maxVolume}) !== initialSnapshot; }
+function isDirty() { return structuralSnapshot() !== initialSnapshot; }
 
 function onMaxVolumeInput(input) {
     const pct = parseInt(input.value, 10);
@@ -579,7 +591,7 @@ function renderPendingBar() {
 }
 
 function computeChanges() {
-    const initial = JSON.parse(initialSnapshot);
+    const initial = JSON.parse(initialSnapshot);   // structural-only snapshot
     const oldSpeakers = initial.speakers || {};
     const oldRooms = initial.rooms || {};
     const oldMaxVol = initial.maxVolume;
@@ -607,12 +619,8 @@ function computeChanges() {
             }
         }
     }
-    for (const [spkId, spk] of Object.entries(speakers)) {
-        const old = oldSpeakers[spkId];
-        if (old && old.volume !== spk.volume) {
-            changes.push(`Volume ${spkId}: ${old.volume}% → ${spk.volume}%`);
-        }
-    }
+    // Volume changes are auto-saved live (amixer + JSON persist) and
+    // intentionally NOT shown in the pending bar.
     return changes;
 }
 
@@ -932,8 +940,14 @@ function togglePendingDetails() {
 }
 
 function discardChanges() {
-    const initial = JSON.parse(initialSnapshot);
-    speakers = initial.speakers;
+    const initial = JSON.parse(initialSnapshot);   // structural-only
+    // Restore structural fields but keep live (already-saved) volumes.
+    const oldSpeakers = initial.speakers || {};
+    const restored = {};
+    for (const [k, v] of Object.entries(oldSpeakers)) {
+        restored[k] = {...v, volume: speakers[k]?.volume ?? 100};
+    }
+    speakers = restored;
     rooms = initial.rooms;
     maxVolume = initial.maxVolume;
     document.getElementById('max-vol-slider').value = Math.round(maxVolume * 100);

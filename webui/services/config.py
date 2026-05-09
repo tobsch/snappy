@@ -76,6 +76,14 @@ class ConfigService:
         self.config['speakers'][speaker_id] = data
         self.save()
 
+    def set_speaker_volume(self, speaker_id: str, volume: int) -> bool:
+        spk = self.config.get('speakers', {}).get(speaker_id)
+        if not spk:
+            return False
+        spk['volume'] = max(0, min(100, int(volume)))
+        self.save()
+        return True
+
     def delete_speaker(self, speaker_id: str) -> bool:
         if speaker_id in self.config.get('speakers', {}):
             del self.config['speakers'][speaker_id]

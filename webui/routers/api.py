@@ -160,14 +160,18 @@ class LiveVolumeRequest(BaseModel):
 
 @router.post("/system/channel-volume")
 async def set_channel_volume(request: Request, data: LiveVolumeRequest):
-    """Set a per-speaker softvol live, without going through the full apply
-    pipeline. Applies immediately to active sendspin streams.
+    """Set a per-speaker softvol live AND persist the value to JSON.
+
+    Volume edits don't need an Apply: ALSA's per-speaker softvol picks up the
+    new value immediately via amixer, and we save the integer to
+    speaker_config.json so reloads / regens see the updated value. No ALSA
+    regen, no sendspin restart — just instant + saved.
     """
     config_svc = get_config_service(request)
 
-    # Find which (room, side) speaker is connected to this (amp, channel).
-    # Without a hit, return 404 so the UI knows there's nothing to set.
+    # Find the speaker for (amp, channel)
     target = None
+    spk_id_match = None
     for rid, room in config_svc.get_rooms().items():
         for side in ("left", "right", "sub"):
             spk_id = room.get(side)
@@ -178,6 +182,7 @@ async def set_channel_volume(request: Request, data: LiveVolumeRequest):
                 continue
             if spk.get("amplifier") == data.amp and int(spk.get("channel", -1)) == int(data.channel):
                 target = {"room": rid, "side": side, "card": data.amp}
+                spk_id_match = spk_id
                 break
         if target:
             break
@@ -191,7 +196,12 @@ async def set_channel_volume(request: Request, data: LiveVolumeRequest):
     ok = await amixer_set(target["card"], ctrl, pct)
     if not ok:
         raise HTTPException(status_code=500, detail=f"amixer set failed for {ctrl}")
-    return {"status": "ok", "control": ctrl, "amixer_pct": pct}
+
+    # Persist to JSON so the value survives reloads / future regens
+    if spk_id_match:
+        config_svc.set_speaker_volume(spk_id_match, data.volume)
+
+    return {"status": "ok", "control": ctrl, "amixer_pct": pct, "saved": bool(spk_id_match)}
 
 
 # === Test endpoints ===
