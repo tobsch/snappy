@@ -106,7 +106,9 @@
                                min="0" max="100" value="100" disabled
                                data-amp="{{ amp.id }}" data-channel="{{ ch }}"
                                oninput="onChannelFaderInput(this)">
-                        <span class="channel-vol-num" id="vol-num-{{ amp.id }}-{{ ch }}">–</span>
+                        <span class="channel-vol-num" id="vol-num-{{ amp.id }}-{{ ch }}"
+                              ondblclick="openVolModal('{{ amp.id }}', {{ ch }})"
+                              title="Double-click to type a value">–</span>
                         <button class="jack-test" tabindex="-1"
                                 onclick="event.stopPropagation(); testCell('{{ amp.id }}', {{ ch }})"
                                 title="Play test on this channel">▶</button>
@@ -123,6 +125,26 @@
     </div>
 
     <svg class="cables-overlay" id="cables-overlay"></svg>
+</div>
+
+<!-- Set volume modal -->
+<div id="vol-modal" class="modal hidden">
+    <div class="modal-content modal-narrow">
+        <div class="modal-header">
+            <h3 id="vol-modal-title">Set volume</h3>
+            <button class="btn btn-small" onclick="closeVolModal()" type="button">&times;</button>
+        </div>
+        <form onsubmit="saveVolModal(event)">
+            <div class="form-group">
+                <label for="vol-modal-input">Volume (0–100)</label>
+                <input type="number" id="vol-modal-input" min="0" max="100" required autofocus>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="closeVolModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Set</button>
+            </div>
+        </form>
+    </div>
 </div>
 
 <!-- Add amplifier modal -->
@@ -300,13 +322,55 @@ function renderJacks() {
 function onChannelFaderInput(input) {
     const amp = input.dataset.amp;
     const ch = parseInt(input.dataset.channel, 10);
+    setChannelVolume(amp, ch, parseInt(input.value, 10), {fromFader: true});
+}
+
+function setChannelVolume(amp, ch, v, opts = {}) {
     const a = findCellAssignment(amp, ch);
     if (!a || !a.speakerId || !speakers[a.speakerId]) return;
-    const v = parseInt(input.value, 10);
+    v = Math.max(0, Math.min(100, v|0));
     speakers[a.speakerId].volume = v;
     const num = document.getElementById(`vol-num-${amp}-${ch}`);
     if (num) num.textContent = v;
+    if (!opts.fromFader) {
+        const fader = document.querySelector(`.channel-fader[data-amp="${amp}"][data-channel="${ch}"]`);
+        if (fader) fader.value = v;
+    }
     renderPendingBar();
+    // Live preview of test playback already passes the latest slider value
+    // (volumeForCell). For sendspin-stream live volume see issue #2.
+}
+
+// ============================================================
+// Volume entry modal (double-click the number under a fader)
+// ============================================================
+let volModalContext = null;
+
+function openVolModal(amp, ch) {
+    const a = findCellAssignment(amp, ch);
+    if (!a || !a.speakerId || !speakers[a.speakerId]) return;
+    volModalContext = {amp, ch};
+    const room = rooms[a.roomId];
+    document.getElementById('vol-modal-title').textContent =
+        `Set volume — ${room?.name || a.roomId} ${a.side?.toUpperCase() || ''}`;
+    const inp = document.getElementById('vol-modal-input');
+    inp.value = speakers[a.speakerId].volume ?? 100;
+    document.getElementById('vol-modal').classList.remove('hidden');
+    setTimeout(() => { inp.focus(); inp.select(); }, 50);
+}
+
+function closeVolModal() {
+    document.getElementById('vol-modal').classList.add('hidden');
+    volModalContext = null;
+}
+
+function saveVolModal(e) {
+    e.preventDefault();
+    if (!volModalContext) return;
+    const v = parseInt(document.getElementById('vol-modal-input').value, 10);
+    if (Number.isNaN(v)) return;
+    setChannelVolume(volModalContext.amp, volModalContext.ch, v);
+    closeVolModal();
 }
 
 function renderRoomSlots() {
@@ -1104,6 +1168,14 @@ document.getElementById('new-room-modal').addEventListener('click', e => {
 });
 document.getElementById('add-amp-modal').addEventListener('click', e => {
     if (e.target.id === 'add-amp-modal') closeAddAmpModal();
+});
+document.getElementById('vol-modal').addEventListener('click', e => {
+    if (e.target.id === 'vol-modal') closeVolModal();
+});
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        closeVolModal();
+    }
 });
 
 // Initial state

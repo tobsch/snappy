@@ -903,6 +903,7 @@ h2 {
     max-width: 450px;
     box-shadow: var(--shadow-lg);
 }
+.modal-content.modal-narrow { max-width: 280px; }
 
 .modal-header {
     display: flex;
@@ -1743,10 +1744,22 @@ body.tap-selecting .room-slot { /* keep slots clickable */ }
 }
 .channel-vol-num {
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 0.55rem;
+    font-size: 0.72rem;
+    font-weight: 600;
     color: #94a3b8;
-    margin-top: 1px;
-    min-height: 0.7rem;
+    margin-top: 2px;
+    min-height: 0.9rem;
     line-height: 1;
+    padding: 1px 4px;
+    border-radius: 3px;
+    cursor: default;
+    user-select: none;
 }
-.jack-channel.connected .channel-vol-num { color: #cbd5e1; }
+.jack-channel.connected .channel-vol-num {
+    color: #e5e7eb;
+    cursor: pointer;
+}
+.jack-channel.connected .channel-vol-num:hover {
+    background: rgba(255,255,255,0.08);
+    color: white;
+}
