@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from services.config import ConfigService
 from services.audio import AudioService
-from services.apply import apply_config
+from services.apply import apply_config, amixer_set, linear_to_amixer_pct
 from services.audio_cards import detect_cards, annotate_configured_amps
 
 router = APIRouter(tags=["api"])
@@ -148,6 +148,50 @@ async def delete_amp(request: Request, amp_id: str):
     if not config_svc.delete_amplifier(amp_id):
         raise HTTPException(status_code=404, detail="Amp not found")
     return {"status": "ok"}
+
+
+# === Live volume (runtime softvol via amixer) ===
+
+class LiveVolumeRequest(BaseModel):
+    amp: str            # amplifier id (e.g. 'amp1')
+    channel: int        # 1-based channel number
+    volume: int         # 0..100 linear
+
+
+@router.post("/system/channel-volume")
+async def set_channel_volume(request: Request, data: LiveVolumeRequest):
+    """Set a per-speaker softvol live, without going through the full apply
+    pipeline. Applies immediately to active sendspin streams.
+    """
+    config_svc = get_config_service(request)
+
+    # Find which (room, side) speaker is connected to this (amp, channel).
+    # Without a hit, return 404 so the UI knows there's nothing to set.
+    target = None
+    for rid, room in config_svc.get_rooms().items():
+        for side in ("left", "right", "sub"):
+            spk_id = room.get(side)
+            if not spk_id:
+                continue
+            spk = config_svc.get_speakers().get(spk_id)
+            if not spk:
+                continue
+            if spk.get("amplifier") == data.amp and int(spk.get("channel", -1)) == int(data.channel):
+                target = {"room": rid, "side": side, "card": data.amp}
+                break
+        if target:
+            break
+
+    if not target:
+        raise HTTPException(status_code=404, detail="No speaker assigned to that channel")
+
+    max_vol = config_svc.get_max_volume()
+    pct = linear_to_amixer_pct(data.volume, max_vol)
+    ctrl = f"vol_{target['room']}_{target['side']}"
+    ok = await amixer_set(target["card"], ctrl, pct)
+    if not ok:
+        raise HTTPException(status_code=500, detail=f"amixer set failed for {ctrl}")
+    return {"status": "ok", "control": ctrl, "amixer_pct": pct}
 
 
 # === Test endpoints ===

@@ -163,27 +163,61 @@ def get_room_speakers(config: dict, max_vol: float) -> dict:
     return rooms
 
 
-def generate_same_device_config(room_id: str, left: dict, right: dict) -> str:
-    """Generate ALSA config for stereo pair on same device."""
-    device = left["amplifier"]
-    left_ch = left["channel"] - 1  # Convert to 0-based
-    right_ch = right["channel"] - 1
-    left_vol = left["volume"]
-    right_vol = right["volume"]
+def _softvol_path(name: str, route_name: str, card: str) -> str:
+    """Render a softvol PCM that wraps a 1.0-coefficient route. Volume is set
+    at runtime via amixer; this provides live per-speaker gain."""
+    return f"""
+pcm.{name} {{
+    type softvol
+    slave.pcm "{route_name}"
+    control {{
+        name "{name}"
+        card {card}
+    }}
+    min_dB -60.0
+    max_dB 0.0
+    resolution 256
+}}
+"""
 
-    # Use dmix to allow concurrent access from multiple snapclients
-    # Note: internal routing device uses _internal_ prefix to avoid snapclient substring matching
+
+def generate_same_device_config(room_id: str, left: dict, right: dict) -> str:
+    """Generate ALSA config for stereo pair on same device — softvol per side."""
+    device = left["amplifier"]
+    left_ch = left["channel"] - 1
+    right_ch = right["channel"] - 1
+    left_ctrl = f"vol_{room_id}_left"
+    right_ctrl = f"vol_{room_id}_right"
+
     return f"""
 #########
 # room_{room_id} - Stereo (same device: {device})
 #########
 
-pcm._internal_{room_id} {{
+pcm._internal_{room_id}_left_route {{
     type route
     slave.pcm "{device}_dmix"
     slave.channels 8
-    ttable.0.{left_ch} {left_vol}
-    ttable.1.{right_ch} {right_vol}
+    ttable.0.{left_ch} 1.0
+}}
+{_softvol_path(left_ctrl, f"_internal_{room_id}_left_route", device)}
+pcm._internal_{room_id}_right_route {{
+    type route
+    slave.pcm "{device}_dmix"
+    slave.channels 8
+    ttable.0.{right_ch} 1.0
+}}
+{_softvol_path(right_ctrl, f"_internal_{room_id}_right_route", device)}
+pcm._internal_{room_id} {{
+    type multi
+    slaves.l.pcm "{left_ctrl}"
+    slaves.l.channels 1
+    slaves.r.pcm "{right_ctrl}"
+    slaves.r.channels 1
+    bindings.0.slave l
+    bindings.0.channel 0
+    bindings.1.slave r
+    bindings.1.channel 0
 }}
 
 pcm.room_{room_id} {{
@@ -194,103 +228,78 @@ pcm.room_{room_id} {{
 
 
 def generate_cross_device_config(room_id: str, left: dict, right: dict) -> str:
-    """Generate ALSA config for stereo pair across different devices.
-
-    Uses ALSA multi plugin to combine two amplifiers into a single stereo device.
-    Also creates individual speaker devices for per-speaker testing.
-    """
+    """Cross-device stereo with per-side softvol on the respective amp's card."""
     left_device = left["amplifier"]
     right_device = right["amplifier"]
-    left_ch = left["channel"] - 1  # Convert to 0-based
+    left_ch = left["channel"] - 1
     right_ch = right["channel"] - 1
-    left_vol = left["volume"]
-    right_vol = right["volume"]
+    left_ctrl = f"vol_{room_id}_left"
+    right_ctrl = f"vol_{room_id}_right"
 
-    # Note: internal routing devices use _internal_ prefix to avoid snapclient substring matching
-    # Individual speaker devices use speaker_ prefix to avoid sendspin prefix-matching room_{room_id}
     return f"""
 #########
 # room_{room_id} - Cross-device stereo: {left_device} ch{left_ch+1} + {right_device} ch{right_ch+1}
 #########
 
-pcm._internal_{room_id}_left {{
+pcm._internal_{room_id}_left_route {{
     type route
     slave.pcm "{left_device}_dmix"
     slave.channels 8
-    ttable.0.{left_ch} {left_vol}
-    ttable.1.{left_ch} {left_vol}
+    ttable.0.{left_ch} 1.0
 }}
-
-pcm.speaker_{room_id}_left {{
-    type plug
-    slave.pcm "_internal_{room_id}_left"
-}}
-
-pcm._internal_{room_id}_right {{
+{_softvol_path(left_ctrl, f"_internal_{room_id}_left_route", left_device)}
+pcm._internal_{room_id}_right_route {{
     type route
     slave.pcm "{right_device}_dmix"
     slave.channels 8
-    ttable.0.{right_ch} {right_vol}
-    ttable.1.{right_ch} {right_vol}
+    ttable.0.{right_ch} 1.0
 }}
-
-pcm.speaker_{room_id}_right {{
-    type plug
-    slave.pcm "_internal_{room_id}_right"
-}}
-
-# Cross-device stereo: multi plugin combines left ({left_device}) and right ({right_device})
-pcm._internal_{room_id}_multi {{
-    type multi
-    slaves.a.pcm "{left_device}_dmix"
-    slaves.a.channels 8
-    slaves.b.pcm "{right_device}_dmix"
-    slaves.b.channels 8
-    bindings.0.slave a
-    bindings.0.channel {left_ch}
-    bindings.1.slave b
-    bindings.1.channel {right_ch}
-}}
-
-pcm._internal_{room_id}_route {{
-    type route
-    slave.pcm "_internal_{room_id}_multi"
-    slave.channels 2
-    ttable.0.0 {left_vol}
-    ttable.1.1 {right_vol}
-}}
-
-pcm.room_{room_id} {{
-    type plug
-    slave.pcm "_internal_{room_id}_route"
-}}
-"""
-
-
-def generate_mono_config(room_id: str, speaker: dict, position: str) -> str:
-    """Generate ALSA config for mono speaker (missing left or right)."""
-    device = speaker["amplifier"]
-    channel = speaker["channel"] - 1  # Convert to 0-based
-    vol = speaker["volume"]
-
-    # Use dmix to allow concurrent access from multiple snapclients
-    # Note: internal routing device uses _internal_ prefix to avoid snapclient substring matching
-    return f"""
-#########
-# room_{room_id} - Mono ({position} only on {device})
-#########
+{_softvol_path(right_ctrl, f"_internal_{room_id}_right_route", right_device)}
+# Per-speaker stereo aliases (used by speaker test if needed)
+pcm.speaker_{room_id}_left {{ type plug; slave.pcm "{left_ctrl}" }}
+pcm.speaker_{room_id}_right {{ type plug; slave.pcm "{right_ctrl}" }}
 
 pcm._internal_{room_id} {{
-    type route
-    slave.pcm "{device}_dmix"
-    slave.channels 8
-    ttable.0.{channel} {vol}
-    ttable.1.{channel} {vol}
+    type multi
+    slaves.l.pcm "{left_ctrl}"
+    slaves.l.channels 1
+    slaves.r.pcm "{right_ctrl}"
+    slaves.r.channels 1
+    bindings.0.slave l
+    bindings.0.channel 0
+    bindings.1.slave r
+    bindings.1.channel 0
 }}
 
 pcm.room_{room_id} {{
     type plug
     slave.pcm "_internal_{room_id}"
+}}
+"""
+
+
+def generate_mono_config(room_id: str, speaker: dict, position: str) -> str:
+    """Mono room — single softvol path."""
+    device = speaker["amplifier"]
+    channel = speaker["channel"] - 1
+    ctrl = f"vol_{room_id}_{position}"
+
+    return f"""
+#########
+# room_{room_id} - Mono ({position} only on {device})
+#########
+
+pcm._internal_{room_id}_{position}_route {{
+    type route
+    slave.pcm "{device}_dmix"
+    slave.channels 8
+    ttable.0.{channel} 1.0
+    ttable.1.{channel} 1.0
+}}
+{_softvol_path(ctrl, f"_internal_{room_id}_{position}_route", device)}
+pcm.room_{room_id} {{
+    type plug
+    slave.pcm "{ctrl}"
 }}
 """
 

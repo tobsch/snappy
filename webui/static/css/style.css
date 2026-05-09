@@ -1765,7 +1765,7 @@ body.tap-selecting .room-slot { /* keep slots clickable */ }
 }
 
 /* ============================================================
-   STATUS module — semi-LED display
+   STATUS module — LED screen
    ============================================================ */
 
 .status-module .module-faceplate {
@@ -1775,92 +1775,122 @@ body.tap-selecting .room-slot { /* keep slots clickable */ }
     padding: 14px 56px;
 }
 
-.led-stats {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
+.led-screen {
+    position: relative;
+    background:
+        radial-gradient(ellipse at center, #1a0e00 0%, #07050a 100%),
+        #0a0500;
+    border: 1px solid #000;
+    border-radius: 6px;
+    box-shadow:
+        inset 0 0 15px rgba(245,158,11,0.05),
+        inset 0 2px 4px rgba(0,0,0,0.85),
+        0 1px 0 rgba(255,255,255,0.03);
+    padding: 14px 18px;
+    overflow: hidden;
 }
 
-.led-stat {
-    background: linear-gradient(180deg, #04060a 0%, #0a0e14 100%);
-    border: 1px solid #000;
-    border-radius: 4px;
-    padding: 0.5rem 0.6rem;
-    box-shadow: inset 0 2px 4px rgba(0,0,0,0.7);
+/* Subtle scanlines + dot grid for that CRT/LED-board look */
+.led-screen::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        repeating-linear-gradient(
+            0deg,
+            rgba(0,0,0,0.18) 0px,
+            rgba(0,0,0,0.18) 1px,
+            transparent 1px,
+            transparent 3px
+        );
+    mix-blend-mode: multiply;
+}
+.led-screen::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: radial-gradient(rgba(245,158,11,0.06) 1px, transparent 1px);
+    background-size: 4px 4px;
+    opacity: 0.8;
+}
+
+.led-screen-inner {
+    position: relative;
+    z-index: 1;
+    font-family: 'VT323', ui-monospace, "Share Tech Mono", monospace;
+    font-size: 1.1rem;
+    line-height: 1.25;
+    color: #f59e0b;
+    text-shadow:
+        0 0 4px rgba(245,158,11,0.7),
+        0 0 10px rgba(245,158,11,0.4);
+    letter-spacing: 0.02em;
+}
+
+.led-line {
+    display: flex;
+    gap: 1.2rem;
+    align-items: baseline;
+}
+.led-key {
+    display: inline-block;
+    min-width: 6.5ch;
+    color: #b87333;
+    text-shadow: 0 0 3px rgba(184,115,51,0.4);
+    font-weight: normal;
+    letter-spacing: 0.1em;
+}
+.led-val {
+    color: #fbbf24;
+    text-shadow:
+        0 0 3px rgba(251,191,36,0.85),
+        0 0 10px rgba(251,191,36,0.45);
+}
+
+.led-divider {
+    color: #6b3a08;
+    text-shadow: 0 0 3px rgba(184,115,51,0.3);
+    margin: 0.4rem 0 0.2rem;
+    letter-spacing: 0.1em;
+    font-size: 1rem;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.led-clients {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 0.05rem 1.2rem;
+}
+
+.led-client-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    line-height: 1.2;
+    color: #5a3c0d;
+    text-shadow: 0 0 2px rgba(184,115,51,0.25);
+}
+.led-client-row.on {
+    color: #fbbf24;
+    text-shadow:
+        0 0 4px rgba(251,191,36,0.85),
+        0 0 10px rgba(251,191,36,0.4);
+}
+.led-dot {
+    display: inline-block;
+    width: 0.9rem;
     text-align: center;
 }
-.led-stat-label {
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 0.55rem;
-    letter-spacing: 0.18em;
-    color: #5a6a7e;
-    margin-bottom: 0.15rem;
-}
-.led-stat-value {
-    font-family: "DSEG7-Classic", "Share Tech Mono", ui-monospace, monospace;
-    font-size: 1.6rem;
-    font-weight: 700;
-    line-height: 1;
-    color: #f59e0b;                                /* amber LED */
-    text-shadow:
-        0 0 6px rgba(245, 158, 11, 0.55),
-        0 0 14px rgba(245, 158, 11, 0.25);
-    letter-spacing: 0.04em;
-    font-variant-numeric: tabular-nums;
-}
-
-.led-feed {
-    background: linear-gradient(180deg, #04060a 0%, #0a0e14 100%);
-    border: 1px solid #000;
-    border-radius: 4px;
-    padding: 0.5rem 0.6rem;
-    box-shadow: inset 0 2px 4px rgba(0,0,0,0.7);
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 0.2rem 1rem;
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 0.7rem;
-    color: #6b8090;
-    min-height: 1.5rem;
-}
-
-.led-feed-row {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 1px 0;
-    line-height: 1.1;
-}
-
-.led-feed-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: #2a3340;
-    box-shadow: inset 0 0 1px rgba(0,0,0,0.6);
-    flex-shrink: 0;
-}
-.led-feed-row.on .led-feed-dot {
-    background: #34d399;
-    box-shadow: 0 0 5px rgba(52, 211, 153, 0.85);
-}
-
-.led-feed-name {
-    color: #cbd5e1;
+.led-client-name {
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.led-feed-row.on .led-feed-name { color: #f1f5f9; }
-
-.led-feed-state {
-    font-size: 0.6rem;
+.led-client-state {
     letter-spacing: 0.1em;
-    color: #4b5563;
-    text-shadow: 0 0 4px rgba(100,150,200,0.15);
-}
-.led-feed-row.on .led-feed-state {
-    color: #34d399;
-    text-shadow: 0 0 4px rgba(52, 211, 153, 0.6);
+    font-size: 0.95rem;
 }

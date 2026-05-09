@@ -3,12 +3,15 @@
 Pipeline (after the new speaker_config.json has been written to disk):
   1. Run generate_alsa_config.py → capture stdout
   2. Compare to current /etc/asound.conf; if changed, sudo-write new file
-  3. Determine which sendspin@room_<id> services need restarting based on
+  3. Seed every per-speaker softvol with its volume via amixer (so the live
+     control reflects the saved value after install)
+  4. Determine which sendspin@room_<id> services need restarting based on
      channel/speaker changes between old and new room configs
-  4. systemctl restart those services (in parallel)
+  5. systemctl restart those services (in parallel)
 """
 
 import asyncio
+import math
 import tempfile
 from pathlib import Path
 
@@ -120,6 +123,101 @@ def room_has_speakers(room: dict | None) -> bool:
     return False
 
 
+# softvol uses a dB scale; ALSA's amixer percentage maps linearly across
+# [min_dB..max_dB]. We want the slider's 0–100 to feel linear in amplitude:
+#   gain = (slider/100) * max_volume        (saved scale 0..1)
+#   dB   = 20 * log10(gain)                 (with gain==0 → silent)
+#   pct  = (dB - MIN) / (MAX - MIN) * 100   (clamped 0..100)
+SOFTVOL_MIN_DB = -60.0
+SOFTVOL_MAX_DB = 0.0
+
+
+def linear_to_amixer_pct(slider_pct: float, max_volume: float = 1.0) -> int:
+    s = max(0.0, min(100.0, float(slider_pct)))
+    gain = (s / 100.0) * float(max_volume or 1.0)
+    if gain <= 0:
+        return 0
+    db = 20.0 * math.log10(gain)
+    if db <= SOFTVOL_MIN_DB:
+        return 0
+    if db >= SOFTVOL_MAX_DB:
+        return 100
+    return int(round((db - SOFTVOL_MIN_DB) / (SOFTVOL_MAX_DB - SOFTVOL_MIN_DB) * 100))
+
+
+async def amixer_set(card: str, control: str, percent: int) -> bool:
+    """Set softvol value via amixer. Returns True on success."""
+    pct = max(0, min(100, int(percent)))
+    proc = await asyncio.create_subprocess_exec(
+        "amixer", "-c", card, "sset", control, f"{pct}%",
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    await proc.wait()
+    return proc.returncode == 0
+
+
+async def prime_softvol_pcm(pcm_name: str) -> None:
+    """Open a softvol-wrapped PCM very briefly so its kernel control element
+    gets created. Without this, amixer can't find the control until the first
+    real consumer (e.g. sendspin) opens the device.
+
+    aplay's -d only takes whole seconds; instead we pipe a tiny chunk of
+    silence from /dev/zero (200 bytes = 100 frames of mono S16 @ 48kHz ≈ 2ms),
+    which causes aplay to open + play + exit cleanly.
+    """
+    # Pipe from /dev/zero with bounded size, into aplay.
+    cmd = (
+        f"head -c 200 /dev/zero | "
+        f"aplay -D {pcm_name} -t raw -f S16_LE -r 48000 -c 1 - "
+        f">/dev/null 2>&1 || true"
+    )
+    proc = await asyncio.create_subprocess_shell(cmd)
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=2.0)
+    except asyncio.TimeoutError:
+        proc.terminate()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=1.0)
+        except asyncio.TimeoutError:
+            proc.kill()
+
+
+async def seed_softvols(config: dict) -> dict[str, str]:
+    """For each room with speakers, prime the softvol PCM (so the kernel
+    control element exists) and then set the value matching the saved
+    volume. Control names are vol_<room>_<side>; card is the speaker's amp."""
+    speakers = config.get("speakers", {})
+    rooms = config.get("rooms", {})
+    max_vol = config.get("global", {}).get("max_volume", 1.0)
+
+    targets = []
+    for rid, room in rooms.items():
+        for side in ("left", "right", "sub"):
+            spk_id = room.get(side)
+            if not spk_id:
+                continue
+            spk = speakers.get(spk_id)
+            if not spk:
+                continue
+            card = spk.get("amplifier")
+            if not card:
+                continue
+            ctrl = f"vol_{rid}_{side}"
+            pct = linear_to_amixer_pct(spk.get("volume", 100), max_vol)
+            targets.append((card, ctrl, pct))
+
+    # Prime each softvol PCM in parallel so kernel controls come into existence
+    await asyncio.gather(*(prime_softvol_pcm(ctrl) for _, ctrl, _ in targets))
+
+    # Now amixer-set each
+    results: dict[str, str] = {}
+    outs = await asyncio.gather(*(amixer_set(c, ctrl, pct) for c, ctrl, pct in targets))
+    for (_, ctrl, _), ok in zip(targets, outs):
+        results[ctrl] = "ok" if ok else "failed"
+    return results
+
+
 async def apply_config(project_dir: Path, old_config: dict, new_config: dict) -> dict:
     """Run the full apply pipeline.
 
@@ -137,6 +235,11 @@ async def apply_config(project_dir: Path, old_config: dict, new_config: dict) ->
     alsa = await regenerate_alsa(project_dir)
     result["alsa_changed"] = await write_asound_conf(alsa)
 
+    # 2.5: seed every per-speaker softvol via amixer so live values match the
+    # newly persisted config. Idempotent — controls already exist after the
+    # asound.conf is parsed.
+    result["softvol_seed"] = await seed_softvols(new_config)
+
     # 3: split affected rooms into "still has speakers" (restart) vs "no
     # longer has any speaker / removed entirely" (stop). Keeping a sendspin
     # service running for a room with no ALSA device just produces a crash
@@ -150,6 +253,16 @@ async def apply_config(project_dir: Path, old_config: dict, new_config: dict) ->
     old_global = old_config.get("global", {})
     new_global = new_config.get("global", {})
     if old_global != new_global:
+        affected = sorted(set(affected) | {
+            rid for rid, r in new_rooms.items() if room_has_speakers(r)
+        })
+
+    # If /etc/asound.conf actually changed on disk, the room device's PCM
+    # chain may have been restructured (e.g. softvol added). Already-open
+    # sendspin streams hold the old chain — force-restart every room that
+    # still has speakers so the new chain is picked up. Volume-only edits
+    # don't trigger this (softvol values change via amixer, not asound.conf).
+    if result["alsa_changed"]:
         affected = sorted(set(affected) | {
             rid for rid, r in new_rooms.items() if room_has_speakers(r)
         })

@@ -74,27 +74,15 @@
                     <div class="module-sub">System</div>
                 </div>
 
-                <div class="led-stats">
-                    <div class="led-stat">
-                        <div class="led-stat-label">ROOMS</div>
-                        <div class="led-stat-value" id="led-rooms">--</div>
+                <div class="led-screen" aria-live="polite">
+                    <div class="led-screen-inner">
+                        <div class="led-line"><span class="led-key">PLAYING</span><span class="led-val" id="led-playing">--</span></div>
+                        <div class="led-line"><span class="led-key">AMPS   </span><span class="led-val" id="led-amps">--</span></div>
+                        <div class="led-line"><span class="led-key">CABLES </span><span class="led-val" id="led-cables">--</span></div>
+                        <div class="led-line"><span class="led-key">ROOMS  </span><span class="led-val" id="led-rooms">--</span></div>
+                        <div class="led-divider">─────────── CLIENTS ───────────</div>
+                        <div class="led-clients" id="led-clients"></div>
                     </div>
-                    <div class="led-stat">
-                        <div class="led-stat-label">AMPS</div>
-                        <div class="led-stat-value" id="led-amps">--</div>
-                    </div>
-                    <div class="led-stat">
-                        <div class="led-stat-label">CABLES</div>
-                        <div class="led-stat-value" id="led-cables">--</div>
-                    </div>
-                    <div class="led-stat">
-                        <div class="led-stat-label">PLAYING</div>
-                        <div class="led-stat-value" id="led-playing">--</div>
-                    </div>
-                </div>
-
-                <div class="led-feed" id="led-feed" aria-live="polite">
-                    <!-- per-room sendspin status — populated by JS -->
                 </div>
             </div>
         </div>
@@ -376,8 +364,22 @@ function setChannelVolume(amp, ch, v, opts = {}) {
         if (fader) fader.value = v;
     }
     renderPendingBar();
-    // Live preview of test playback already passes the latest slider value
-    // (volumeForCell). For sendspin-stream live volume see issue #2.
+    // Live update: fire amixer immediately so active sendspin streams adjust
+    // without waiting for Apply.
+    scheduleLiveVolume(amp, ch, v);
+}
+
+// Debounce live amixer calls so a fader drag doesn't flood the server.
+const _liveVolDebouncers = {};
+function scheduleLiveVolume(amp, ch, v) {
+    const key = `${amp}:${ch}`;
+    clearTimeout(_liveVolDebouncers[key]);
+    _liveVolDebouncers[key] = setTimeout(() => {
+        fetch('/api/system/channel-volume', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({amp, channel: ch, volume: v}),
+        }).catch(() => {});
+    }, 60);
 }
 
 // ============================================================
@@ -1162,6 +1164,11 @@ async function setAllAmps(state) {
     loadAmpPower();
 }
 
+// ============================================================
+// LED status display — runtime data
+// ============================================================
+let _activeRooms = [];   // populated by sendspin poller, used by refreshLedStats
+
 async function loadAmpPower() {
     try {
         const r = await fetch('/api/system/powermanager');
@@ -1185,9 +1192,12 @@ async function loadAmpPower() {
         }
         const tog = document.getElementById('all-amps-toggle');
         if (tog && anyKnown) tog.dataset.value = allOn ? 'b' : 'a';
-        // Status LEDs
         const ampsLed = document.getElementById('led-amps');
-        if (ampsLed) ampsLed.textContent = anyKnown ? `${ampsOn}/${ampsTotal}` : '--';
+        if (ampsLed) {
+            ampsLed.textContent = anyKnown
+                ? `${String(ampsOn).padStart(2, '0')} / ${String(ampsTotal).padStart(2, '0')} online`
+                : '-- offline';
+        }
     } catch (_) { /* silent */ }
 }
 
@@ -1196,41 +1206,51 @@ async function loadSendspinStatus() {
         const r = await fetch('/api/system/sendspin');
         const data = await r.json();
         const clients = data.clients || {};
-        const feed = document.getElementById('led-feed');
-        const playingLed = document.getElementById('led-playing');
-        if (!feed) return;
-        const entries = Object.entries(clients).sort();
-        let activeCount = 0;
+        const entries = Object.entries(clients).sort((a, b) => {
+            const an = (rooms[a[0]]?.name || a[0]).toLowerCase();
+            const bn = (rooms[b[0]]?.name || b[0]).toLowerCase();
+            return an.localeCompare(bn);
+        });
+        _activeRooms = [];
         const rows = entries.map(([rid, c]) => {
             const active = !!c.active;
-            if (active) activeCount++;
             const room = rooms[rid] || {};
             const name = room.name || rid;
-            const state = (c.status || '').toUpperCase();
-            return `
-                <div class="led-feed-row ${active ? 'on' : 'off'}">
-                    <span class="led-feed-dot"></span>
-                    <span class="led-feed-name">${escapeHtml(name)}</span>
-                    <span class="led-feed-state">${escapeHtml(state || '----')}</span>
-                </div>
-            `;
+            if (active) _activeRooms.push(name);
+            const state = (c.status || '----').toUpperCase().padEnd(8, ' ');
+            const dot = active ? '●' : '○';
+            return `<div class="led-client-row ${active ? 'on' : 'off'}"><span class="led-dot">${dot}</span><span class="led-client-name">${escapeHtml(name)}</span><span class="led-client-state">${escapeHtml(state.trim())}</span></div>`;
         }).join('');
-        feed.innerHTML = rows || '<div class="led-feed-row off"><span class="led-feed-name">no clients</span></div>';
-        if (playingLed) playingLed.textContent = `${activeCount}/${entries.length || 0}`;
+        const cl = document.getElementById('led-clients');
+        if (cl) cl.innerHTML = rows || '<div class="led-client-row off"><span class="led-client-name">no clients</span></div>';
+        refreshLedStats();   // playing line depends on _activeRooms
     } catch (_) { /* silent */ }
 }
 
 function refreshLedStats() {
-    // Static counts from current page state
     const roomsLed = document.getElementById('led-rooms');
     const cablesLed = document.getElementById('led-cables');
-    if (roomsLed) roomsLed.textContent = String(Object.keys(rooms).length).padStart(2, '0');
-    if (cablesLed) {
-        let cables = 0;
-        for (const r of Object.values(rooms)) {
-            for (const side of ['left', 'right', 'sub']) if (r[side]) cables++;
+    const playingLed = document.getElementById('led-playing');
+
+    const numRooms = Object.keys(rooms).length;
+    let cables = 0;
+    for (const r of Object.values(rooms)) {
+        for (const side of ['left', 'right', 'sub']) if (r[side]) cables++;
+    }
+
+    if (roomsLed) roomsLed.textContent = `${String(numRooms).padStart(2, '0')} configured`;
+    if (cablesLed) cablesLed.textContent = `${String(cables).padStart(2, '0')} connected`;
+
+    if (playingLed) {
+        const n = _activeRooms.length;
+        if (n === 0) {
+            playingLed.textContent = '00 rooms (silent)';
+        } else {
+            const names = _activeRooms.slice(0, 3).join(', ');
+            const more = _activeRooms.length > 3 ? ` +${_activeRooms.length - 3}` : '';
+            const word = n === 1 ? 'room' : 'rooms';
+            playingLed.textContent = `${String(n).padStart(2, '0')} ${word} (${names}${more})`;
         }
-        cablesLed.textContent = String(cables).padStart(2, '0');
     }
 }
 
