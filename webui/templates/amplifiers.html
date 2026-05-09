@@ -61,6 +61,44 @@
     </div>
 
     <div class="rack-body" id="rack-body">
+        <!-- STATUS module: dot-LED-style overview -->
+        <div class="rack-module status-module">
+            <div class="module-faceplate">
+                <div class="screw screw-tl"></div>
+                <div class="screw screw-bl"></div>
+                <div class="screw screw-tr"></div>
+                <div class="screw screw-br"></div>
+
+                <div class="module-meta">
+                    <div class="module-label">STATUS</div>
+                    <div class="module-sub">System</div>
+                </div>
+
+                <div class="led-stats">
+                    <div class="led-stat">
+                        <div class="led-stat-label">ROOMS</div>
+                        <div class="led-stat-value" id="led-rooms">--</div>
+                    </div>
+                    <div class="led-stat">
+                        <div class="led-stat-label">AMPS</div>
+                        <div class="led-stat-value" id="led-amps">--</div>
+                    </div>
+                    <div class="led-stat">
+                        <div class="led-stat-label">CABLES</div>
+                        <div class="led-stat-value" id="led-cables">--</div>
+                    </div>
+                    <div class="led-stat">
+                        <div class="led-stat-label">PLAYING</div>
+                        <div class="led-stat-value" id="led-playing">--</div>
+                    </div>
+                </div>
+
+                <div class="led-feed" id="led-feed" aria-live="polite">
+                    <!-- per-room sendspin status — populated by JS -->
+                </div>
+            </div>
+        </div>
+
         <div class="rack-module patch-panel">
             <div class="module-faceplate">
                 <div class="screw screw-tl"></div>
@@ -289,6 +327,7 @@ function render() {
     renderRoomSlots();
     requestAnimationFrame(renderCables);
     renderPendingBar();
+    refreshLedStats();
 }
 
 function renderJacks() {
@@ -1127,12 +1166,13 @@ async function loadAmpPower() {
     try {
         const r = await fetch('/api/system/powermanager');
         const data = await r.json();
-        let allOn = true, anyKnown = false;
+        let allOn = true, anyKnown = false, ampsOn = 0, ampsTotal = 0;
         for (const [amp, info] of Object.entries(data.amps || {})) {
             anyKnown = true;
+            ampsTotal++;
             const el = document.getElementById(`power-${amp}`);
             const isOn = info.state === 'on';
-            if (!isOn) allOn = false;
+            if (isOn) ampsOn++; else allOn = false;
             const hasAudio = info.audio_active;
             if (el) {
                 el.innerHTML = `
@@ -1145,7 +1185,53 @@ async function loadAmpPower() {
         }
         const tog = document.getElementById('all-amps-toggle');
         if (tog && anyKnown) tog.dataset.value = allOn ? 'b' : 'a';
+        // Status LEDs
+        const ampsLed = document.getElementById('led-amps');
+        if (ampsLed) ampsLed.textContent = anyKnown ? `${ampsOn}/${ampsTotal}` : '--';
     } catch (_) { /* silent */ }
+}
+
+async function loadSendspinStatus() {
+    try {
+        const r = await fetch('/api/system/sendspin');
+        const data = await r.json();
+        const clients = data.clients || {};
+        const feed = document.getElementById('led-feed');
+        const playingLed = document.getElementById('led-playing');
+        if (!feed) return;
+        const entries = Object.entries(clients).sort();
+        let activeCount = 0;
+        const rows = entries.map(([rid, c]) => {
+            const active = !!c.active;
+            if (active) activeCount++;
+            const room = rooms[rid] || {};
+            const name = room.name || rid;
+            const state = (c.status || '').toUpperCase();
+            return `
+                <div class="led-feed-row ${active ? 'on' : 'off'}">
+                    <span class="led-feed-dot"></span>
+                    <span class="led-feed-name">${escapeHtml(name)}</span>
+                    <span class="led-feed-state">${escapeHtml(state || '----')}</span>
+                </div>
+            `;
+        }).join('');
+        feed.innerHTML = rows || '<div class="led-feed-row off"><span class="led-feed-name">no clients</span></div>';
+        if (playingLed) playingLed.textContent = `${activeCount}/${entries.length || 0}`;
+    } catch (_) { /* silent */ }
+}
+
+function refreshLedStats() {
+    // Static counts from current page state
+    const roomsLed = document.getElementById('led-rooms');
+    const cablesLed = document.getElementById('led-cables');
+    if (roomsLed) roomsLed.textContent = String(Object.keys(rooms).length).padStart(2, '0');
+    if (cablesLed) {
+        let cables = 0;
+        for (const r of Object.values(rooms)) {
+            for (const side of ['left', 'right', 'sub']) if (r[side]) cables++;
+        }
+        cablesLed.textContent = String(cables).padStart(2, '0');
+    }
 }
 
 // ============================================================
@@ -1181,7 +1267,10 @@ document.addEventListener('keydown', e => {
 // Initial state
 setTestMode(testMode);  // sync toggle position with default
 render();
+refreshLedStats();
 loadAmpPower();
+loadSendspinStatus();
 setInterval(loadAmpPower, 5000);
+setInterval(loadSendspinStatus, 4000);
 </script>
 {% endblock %}

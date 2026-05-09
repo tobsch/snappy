@@ -1,4 +1,4 @@
-"""Page routes - serves HTML pages"""
+"""Page routes — single-page rack UI."""
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
@@ -14,21 +14,8 @@ def get_config_service(request: Request) -> ConfigService:
 
 
 @router.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request):
-    """Main dashboard page"""
-    config_svc = get_config_service(request)
-    templates = request.app.state.templates
-
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request,
-        "rooms": config_svc.get_rooms(),
-        "amplifiers": config_svc.get_amplifiers(),
-    })
-
-
-@router.get("/amplifiers", response_class=HTMLResponse)
-async def amplifiers(request: Request):
-    """Amplifier channel view: drag-and-drop room→channel assignment."""
+async def rack(request: Request):
+    """The whole UI: a single rack with status, patch panel, and amp modules."""
     config_svc = get_config_service(request)
     templates = request.app.state.templates
 
@@ -52,15 +39,3 @@ async def amplifiers(request: Request):
         "rooms": config_svc.get_rooms(),
         "max_volume": config_svc.get_max_volume(),
     })
-
-
-@router.get("/playback", response_class=HTMLResponse)
-async def playback(request: Request):
-    """Sendspin client status page"""
-    templates = request.app.state.templates
-
-    return templates.TemplateResponse("playback.html", {
-        "request": request,
-    })
-
-

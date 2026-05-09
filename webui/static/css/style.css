@@ -1763,3 +1763,104 @@ body.tap-selecting .room-slot { /* keep slots clickable */ }
     background: rgba(255,255,255,0.08);
     color: white;
 }
+
+/* ============================================================
+   STATUS module — semi-LED display
+   ============================================================ */
+
+.status-module .module-faceplate {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
+    padding: 14px 56px;
+}
+
+.led-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+}
+
+.led-stat {
+    background: linear-gradient(180deg, #04060a 0%, #0a0e14 100%);
+    border: 1px solid #000;
+    border-radius: 4px;
+    padding: 0.5rem 0.6rem;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.7);
+    text-align: center;
+}
+.led-stat-label {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.55rem;
+    letter-spacing: 0.18em;
+    color: #5a6a7e;
+    margin-bottom: 0.15rem;
+}
+.led-stat-value {
+    font-family: "DSEG7-Classic", "Share Tech Mono", ui-monospace, monospace;
+    font-size: 1.6rem;
+    font-weight: 700;
+    line-height: 1;
+    color: #f59e0b;                                /* amber LED */
+    text-shadow:
+        0 0 6px rgba(245, 158, 11, 0.55),
+        0 0 14px rgba(245, 158, 11, 0.25);
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+}
+
+.led-feed {
+    background: linear-gradient(180deg, #04060a 0%, #0a0e14 100%);
+    border: 1px solid #000;
+    border-radius: 4px;
+    padding: 0.5rem 0.6rem;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.7);
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.2rem 1rem;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.7rem;
+    color: #6b8090;
+    min-height: 1.5rem;
+}
+
+.led-feed-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 1px 0;
+    line-height: 1.1;
+}
+
+.led-feed-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #2a3340;
+    box-shadow: inset 0 0 1px rgba(0,0,0,0.6);
+    flex-shrink: 0;
+}
+.led-feed-row.on .led-feed-dot {
+    background: #34d399;
+    box-shadow: 0 0 5px rgba(52, 211, 153, 0.85);
+}
+
+.led-feed-name {
+    color: #cbd5e1;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.led-feed-row.on .led-feed-name { color: #f1f5f9; }
+
+.led-feed-state {
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    color: #4b5563;
+    text-shadow: 0 0 4px rgba(100,150,200,0.15);
+}
+.led-feed-row.on .led-feed-state {
+    color: #34d399;
+    text-shadow: 0 0 4px rgba(52, 211, 153, 0.6);
+}

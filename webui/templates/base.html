@@ -4,19 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Multiroom Audio{% endblock %}</title>
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-    <nav class="navbar">
-        <div class="nav-brand">Multiroom Audio</div>
-        <div class="nav-links">
-            <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Dashboard</a>
-            <a href="/amplifiers" class="{% if request.url.path == '/amplifiers' %}active{% endif %}">Amplifiers</a>
-            <a href="/playback" class="{% if request.url.path == '/playback' %}active{% endif %}">Sendspin</a>
-        </div>
-    </nav>
-
     <main class="container">
         {% block content %}{% endblock %}
     </main>
