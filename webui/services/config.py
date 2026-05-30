@@ -56,9 +56,45 @@ class ConfigService:
         self.config["amplifiers"][amp_id] = data
         self.save()
 
+    def update_amplifier(self, amp_id: str, partial: dict) -> bool:
+        """Merge `partial` into an existing amp's config. Returns False if amp unknown.
+        Keys with value `None` are removed (so passing `{'gpio': None}` clears the
+        gpio field → amp becomes always-on).
+        """
+        amps = self.config.get("amplifiers") or {}
+        if amp_id not in amps:
+            return False
+        current = dict(amps[amp_id])
+        for k, v in partial.items():
+            if v is None:
+                current.pop(k, None)
+            else:
+                current[k] = v
+        amps[amp_id] = current
+        self.config["amplifiers"] = amps
+        self.save()
+        return True
+
     def delete_amplifier(self, amp_id: str) -> bool:
         if amp_id in self.config.get("amplifiers", {}):
             del self.config["amplifiers"][amp_id]
+            self.save()
+            return True
+        return False
+
+    # Inputs (USB capture devices)
+    def get_inputs(self) -> dict:
+        return self.config.get("inputs", {})
+
+    def add_input(self, input_id: str, data: dict) -> None:
+        if "inputs" not in self.config:
+            self.config["inputs"] = {}
+        self.config["inputs"][input_id] = data
+        self.save()
+
+    def delete_input(self, input_id: str) -> bool:
+        if input_id in self.config.get("inputs", {}):
+            del self.config["inputs"][input_id]
             self.save()
             return True
         return False

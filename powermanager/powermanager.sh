@@ -12,8 +12,24 @@
 # Hardware state is re-read from `ampctl status` each iteration so that
 # external state changes (manual ampctl, power glitches) self-heal.
 
-CARDS=("amp1" "amp2" "amp3")
 SPEAKER_CONFIG="/home/tobias/multiroom-tooling/speaker_config.json"
+
+# Build CARDS dynamically from speaker_config.json: only amps that have a
+# `gpio` field configured. Amps without a gpio are wired straight to power
+# (always-on) and don't need (or support) software toggling — leave them alone.
+mapfile -t CARDS < <(python3 - "$SPEAKER_CONFIG" <<'PY' 2>/dev/null
+import json, sys
+try:
+    c = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+for k, amp in sorted((c.get('amplifiers') or {}).items()):
+    if isinstance(amp, dict) and isinstance(amp.get('gpio'), int):
+        print(k)
+PY
+)
+[[ ${#CARDS[@]} -gt 0 ]] || CARDS=("amp1" "amp2" "amp3")  # safe fallback if config unreadable
+
 SAMPLE_WINDOW=2          # seconds between bytes_received samples
 ACTIVE_THRESHOLD=50000   # >50KB/2s = real audio (active PCM is ~576KB/2s)
 IDLE_TIMEOUT=60          # seconds of inactivity before shutting an amp down

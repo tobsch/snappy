@@ -113,6 +113,7 @@ async def audio_cards(request: Request):
 class AmpAdd(BaseModel):
     card: str | None = None     # ALSA short id (e.g. 'amp4'); defaults to amp_id
     channels: int = 8
+    gpio: int | None = None     # SHDN GPIO line; None = amp is always-on (no GPIO control)
 
 
 @router.post("/config/amps/{amp_id}")
@@ -128,11 +129,37 @@ async def add_amp(request: Request, amp_id: str, data: AmpAdd):
         raise HTTPException(status_code=409, detail=f"Amp {amp_id!r} already exists")
     if not amp_id.replace("_", "").isalnum():
         raise HTTPException(status_code=400, detail="amp_id must be alphanumeric/underscore")
-    config_svc.add_amplifier(amp_id, {
+    entry: dict = {
         "card": data.card or amp_id,
         "channels": int(data.channels),
-    })
+    }
+    if data.gpio is not None:
+        entry["gpio"] = int(data.gpio)
+    config_svc.add_amplifier(amp_id, entry)
     return {"status": "ok", "amp_id": amp_id}
+
+
+class AmpUpdate(BaseModel):
+    # Only fields the user might change are exposed here; channels is structural
+    # (changing it requires speaker re-config / asound regen) so kept out for now.
+    gpio: int | None = None     # null/omitted = clear (amp becomes always-on)
+
+
+@router.patch("/config/amps/{amp_id}")
+async def update_amp(request: Request, amp_id: str, data: AmpUpdate):
+    """Update an existing amplifier's settings (currently: GPIO pin).
+
+    Pass `gpio: null` (or omit) to clear the GPIO mapping — the amp is then
+    treated as always-on (status: on; on/off no-op; powermanager skips it).
+    """
+    config_svc = get_config_service(request)
+    partial = data.model_dump(exclude_unset=True)
+    # Map omitted-but-meaningful semantics: if the client posted gpio:null
+    # explicitly, model_dump includes it; if they POSTed an empty body we
+    # don't touch anything.
+    if not config_svc.update_amplifier(amp_id, partial):
+        raise HTTPException(status_code=404, detail="Amp not found")
+    return {"status": "ok", "amp_id": amp_id, "applied": partial}
 
 
 @router.delete("/config/amps/{amp_id}")

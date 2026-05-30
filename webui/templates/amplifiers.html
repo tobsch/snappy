@@ -126,6 +126,11 @@
                     <div class="module-sub" title="{{ amp.usb_path or 'not detected' }}">
                         {{ amp.model }}{% if not amp.online %} <span class="offline-badge">offline</span>{% endif %}
                     </div>
+                    <div class="module-gpio"
+                         ondblclick="openAmpGpioModal('{{ amp.id }}')"
+                         title="GPIO SHDN pin (double-click to edit; blank = always on)">
+                        GPIO: <span id="amp-gpio-{{ amp.id }}">{% if amp.gpio is not none %}{{ amp.gpio }}{% else %}—{% endif %}</span>
+                    </div>
                 </div>
                 <div class="module-power" id="power-{{ amp.id }}">
                     <span class="text-muted">…</span>
@@ -175,6 +180,27 @@
             </div>
             <div class="modal-actions">
                 <button type="button" class="btn" onclick="closeVolModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Set</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Set amp GPIO modal -->
+<div id="amp-gpio-modal" class="modal hidden">
+    <div class="modal-content modal-narrow">
+        <div class="modal-header">
+            <h3 id="amp-gpio-modal-title">Set GPIO pin</h3>
+            <button class="btn btn-small" onclick="closeAmpGpioModal()" type="button">&times;</button>
+        </div>
+        <form onsubmit="saveAmpGpioModal(event)">
+            <div class="form-group">
+                <label for="amp-gpio-modal-input">GPIO line (BCM number)</label>
+                <input type="number" id="amp-gpio-modal-input" min="0" max="63" autofocus>
+                <p class="setting-help">Leave blank to treat this amplifier as always-on (no SHDN line wired).</p>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="closeAmpGpioModal()">Cancel</button>
                 <button type="submit" class="btn btn-primary">Set</button>
             </div>
         </form>
@@ -416,6 +442,55 @@ function scheduleLiveVolume(amp, ch, v) {
             body: JSON.stringify({amp, channel: ch, volume: v}),
         }).catch(() => {});
     }, 60);
+}
+
+// ============================================================
+// Amp GPIO modal (double-click the GPIO line under module-sub)
+// ============================================================
+let ampGpioModalContext = null;
+
+function openAmpGpioModal(ampId) {
+    ampGpioModalContext = ampId;
+    document.getElementById('amp-gpio-modal-title').textContent = `Set GPIO — ${ampId}`;
+    const inp = document.getElementById('amp-gpio-modal-input');
+    const span = document.getElementById('amp-gpio-' + ampId);
+    const current = (span?.textContent || '').trim();
+    inp.value = (current && current !== '—') ? current : '';
+    document.getElementById('amp-gpio-modal').classList.remove('hidden');
+    setTimeout(() => { inp.focus(); inp.select(); }, 50);
+}
+
+function closeAmpGpioModal() {
+    document.getElementById('amp-gpio-modal').classList.add('hidden');
+    ampGpioModalContext = null;
+}
+
+async function saveAmpGpioModal(event) {
+    event.preventDefault();
+    if (!ampGpioModalContext) { closeAmpGpioModal(); return; }
+    const ampId = ampGpioModalContext;
+    const raw = document.getElementById('amp-gpio-modal-input').value.trim();
+    const gpio = raw === '' ? null : parseInt(raw, 10);
+    if (raw !== '' && (!Number.isFinite(gpio) || gpio < 0 || gpio > 63)) {
+        showToast('GPIO must be 0–63 or blank', true);
+        return;
+    }
+    try {
+        const r = await fetch(`/api/config/amps/${encodeURIComponent(ampId)}`, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({gpio}),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) { showToast(data.detail || 'Failed to set GPIO', true); return; }
+        // Update the on-page label without a full reload
+        const span = document.getElementById('amp-gpio-' + ampId);
+        if (span) span.textContent = (gpio === null) ? '—' : String(gpio);
+        showToast(`GPIO for ${ampId}: ${gpio === null ? 'always-on' : gpio}`);
+        closeAmpGpioModal();
+    } catch (e) {
+        showToast('Connection error', true);
+    }
 }
 
 // ============================================================
@@ -1067,6 +1142,8 @@ async function openAddAmpModal() {
                     <form class="addamp-form" onsubmit="submitAddAmp(event, '${escapeHtml(c.id)}')">
                         <label>ID <input type="text" name="amp_id" value="${escapeHtml(suggested)}" pattern="[a-z0-9_]+" required></label>
                         <label>Channels <input type="number" name="channels" value="8" min="1" max="32" required></label>
+                        <label title="BCM GPIO line for SHDN. Leave blank if the amp is always-on (no GPIO control)."
+                               >GPIO <input type="number" name="gpio" min="0" max="63" placeholder="optional"></label>
                         <button type="submit" class="btn btn-primary btn-small">Add</button>
                     </form>
                 </li>`;
@@ -1104,11 +1181,13 @@ async function submitAddAmp(event, cardId) {
     const form = event.target;
     const amp_id = form.amp_id.value.trim().toLowerCase();
     const channels = parseInt(form.channels.value, 10);
+    const gpioRaw = form.gpio?.value?.trim();
+    const gpio = gpioRaw === '' || gpioRaw === undefined ? null : parseInt(gpioRaw, 10);
     try {
         const r = await fetch(`/api/config/amps/${amp_id}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({card: cardId, channels}),
+            body: JSON.stringify({card: cardId, channels, gpio}),
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {

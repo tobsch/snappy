@@ -6,173 +6,176 @@
   "amplifiers": {
     "amp1": {
       "card": "amp1",
-      "channels": 8
+      "channels": 8,
+      "gpio": 27
     },
     "amp2": {
       "card": "amp2",
-      "channels": 8
+      "channels": 8,
+      "gpio": 22
     },
     "amp3": {
       "card": "amp3",
-      "channels": 8
+      "channels": 8,
+      "gpio": 17
     }
   },
   "inputs": {},
   "speakers": {
-    "wohnzimmer_right": {
+    "backupkueche_left": {
       "amplifier": "amp1",
       "channel": 3,
-      "volume": 100,
-      "latency": 0
-    },
-    "wohnzimmer_left": {
-      "amplifier": "amp1",
-      "channel": 4,
-      "volume": 100,
-      "latency": 0
+      "latency": 0,
+      "volume": 100
     },
     "backupkueche_right": {
-      "amplifier": "amp3",
-      "channel": 5,
-      "volume": 100,
-      "latency": 0
-    },
-    "backupkueche_left": {
-      "amplifier": "amp3",
-      "channel": 6,
-      "volume": 100,
-      "latency": 0
-    },
-    "kueche_left": {
       "amplifier": "amp1",
-      "channel": 5,
-      "volume": 100,
-      "latency": 0
+      "channel": 4,
+      "latency": 0,
+      "volume": 100
+    },
+    "elternbad_left": {
+      "amplifier": "amp2",
+      "channel": 4,
+      "latency": 0,
+      "volume": 100
+    },
+    "elternbad_right": {
+      "amplifier": "amp2",
+      "channel": 3,
+      "latency": 0,
+      "volume": 100
     },
     "esszimmer_left": {
-      "amplifier": "amp3",
-      "channel": 3,
-      "volume": 100,
-      "latency": 0
+      "amplifier": "amp1",
+      "channel": 5,
+      "latency": 0,
+      "volume": 100
     },
     "esszimmer_right": {
       "amplifier": "amp1",
       "channel": 6,
-      "volume": 100,
-      "latency": 0
+      "latency": 0,
+      "volume": 100
+    },
+    "kueche_left": {
+      "amplifier": "amp1",
+      "channel": 1,
+      "latency": 0,
+      "volume": 100
     },
     "kueche_right": {
-      "amplifier": "amp3",
-      "channel": 4,
-      "volume": 100,
-      "latency": 0
+      "amplifier": "amp1",
+      "channel": 2,
+      "latency": 0,
+      "volume": 100
     },
     "vordach_left": {
+      "amplifier": "amp3",
+      "channel": 5,
+      "latency": 0,
+      "volume": 100
+    },
+    "vordach_right": {
+      "amplifier": "amp3",
+      "channel": 6,
+      "latency": 0,
+      "volume": 100
+    },
+    "wohnzimmer_left": {
       "amplifier": "amp1",
+      "channel": 7,
+      "latency": 0,
+      "volume": 100
+    },
+    "wohnzimmer_right": {
+      "amplifier": "amp1",
+      "channel": 8,
+      "latency": 0,
+      "volume": 100
+    },
+    "schlafzimmer_left": {
+      "amplifier": "amp2",
       "channel": 1,
       "volume": 100,
       "latency": 0
     },
-    "kinderzimmer_lou_left": {
-      "amplifier": "amp2",
-      "channel": 3,
-      "volume": 100,
-      "latency": 0
-    },
-    "kinderzimmer_lou_right": {
-      "amplifier": "amp2",
-      "channel": 4,
-      "volume": 100,
-      "latency": 0
-    },
-    "kinderzimmer_linda_right": {
-      "amplifier": "amp2",
-      "channel": 5,
-      "volume": 100,
-      "latency": 0
-    },
-    "kinderzimmer_linda_left": {
-      "amplifier": "amp2",
-      "channel": 6,
-      "volume": 100,
-      "latency": 0
-    },
-    "elternbad_left": {
+    "schlafzimmer_right": {
       "amplifier": "amp2",
       "channel": 2,
-      "volume": 100,
-      "latency": 0
-    },
-    "elternbad_right": {
-      "amplifier": "amp2",
-      "channel": 8,
       "volume": 100,
       "latency": 0
     }
   },
   "rooms": {
-    "wohnzimmer": {
-      "name": "Wohnzimmer",
-      "left": "wohnzimmer_left",
-      "right": "wohnzimmer_right",
-      "zones": [
-        "wohnen"
-      ]
-    },
     "backupkueche": {
-      "name": "Backupkueche",
       "left": "backupkueche_left",
+      "name": "Backupkueche",
       "right": "backupkueche_right",
       "zones": [
         "essen"
       ]
     },
-    "kueche": {
-      "name": "Kueche",
-      "left": "kueche_left",
-      "right": "kueche_right",
+    "elternbad": {
+      "left": "elternbad_left",
+      "name": "Elternbad",
+      "right": "elternbad_right",
       "zones": [
-        "essen"
+        "elternbad"
       ]
     },
     "esszimmer": {
-      "name": "Esszimmer",
       "left": "esszimmer_left",
+      "name": "Esszimmer",
       "right": "esszimmer_right",
       "zones": [
         "essen"
       ]
     },
-    "vordach": {
-      "name": "Vordach",
-      "left": "vordach_left",
-      "right": null,
-      "zones": [
-        "draussen"
-      ]
-    },
-    "kinderzimmer_lou": {
-      "name": "Kinderzimmer Lou",
-      "left": "kinderzimmer_lou_left",
-      "right": "kinderzimmer_lou_right",
-      "zones": [
-        "louise"
-      ]
-    },
     "kinderzimmer_linda": {
+      "left": null,
       "name": "Kinderzimmer Linda",
-      "left": "kinderzimmer_linda_left",
-      "right": "kinderzimmer_linda_right",
+      "right": null,
       "zones": [
         "linda"
       ]
     },
-    "elternbad": {
-      "name": "Elternbad",
-      "left": "elternbad_left",
-      "right": "elternbad_right",
+    "kinderzimmer_lou": {
+      "left": null,
+      "name": "Kinderzimmer Lou",
+      "right": null,
       "zones": [
-        "elternbad"
+        "louise"
+      ]
+    },
+    "kueche": {
+      "left": "kueche_left",
+      "name": "Kueche",
+      "right": "kueche_right",
+      "zones": [
+        "essen"
+      ]
+    },
+    "schlafzimmer": {
+      "left": "schlafzimmer_left",
+      "name": "Schlafzimmer",
+      "right": "schlafzimmer_right",
+      "zones": []
+    },
+    "vordach": {
+      "left": "vordach_left",
+      "name": "Vordach",
+      "right": "vordach_right",
+      "zones": [
+        "draussen"
+      ]
+    },
+    "wohnzimmer": {
+      "left": "wohnzimmer_left",
+      "name": "Wohnzimmer",
+      "right": "wohnzimmer_right",
+      "zones": [
+        "wohnen"
       ]
     }
   },

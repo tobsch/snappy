@@ -27,6 +27,7 @@ async def rack(request: Request):
             "id": amp_id,
             "card": amp.get("card", amp_id),
             "channels": amp.get("channels", 8),
+            "gpio": amp.get("gpio"),            # int or None (None = always-on)
             "model": (card or {}).get("description") or amp.get("card", amp_id),
             "usb_path": (card or {}).get("usb_path"),
             "online": card is not None,
