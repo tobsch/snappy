@@ -32,6 +32,42 @@ class AudioService:
             return None
         return v / 100.0
 
+    @staticmethod
+    async def _ensure_amp_on(amp: str) -> None:
+        """Power the target amplifier on AND restore its PCM mixer before a test sound.
+
+        Test chimes/TTS are played via aplay directly, which bypasses sendspin's
+        WebSocket — so the external powermanager.sh (bytes-flow detector) never
+        wakes the amp and the test is silent. Calling `ampctl on` here makes the
+        test audible; the powermanager's normal idle-timeout then powers the amp
+        back off shortly after the test ends.
+
+        We also reset the USB-Audio PCM mixer to 100%: it can drift to its
+        hardware default (~57% / -18 dB on the WONDOM GAB8) after a power cycle
+        if the `99-amp-volume.rules` udev rule misses the reconnect, leaving the
+        test audibly attenuated. amixer -c <amp> sset PCM 100% is a few ms and
+        idempotent when already at 100%.
+
+        Best-effort: if ampctl or amixer are missing or fail, we still try to
+        play (degrades to silent rather than erroring out).
+        """
+        for cmd in (
+            ["ampctl", "on", amp],
+            ["amixer", "-c", amp, "sset", "PCM", "100%"],
+        ):
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                await proc.wait()
+            except Exception:
+                pass
+
+    # Brief settle so the amp mute-release completes before the first sample.
+    _AMP_SETTLE_SEC = 0.1
+
     async def _play_file(self, device: str, source_path: Path, gain: Optional[float]) -> bool:
         """Play a wav file through `aplay -D <device>`, optionally pre-scaled by sox.
 
@@ -104,6 +140,8 @@ class AudioService:
 
     async def play_chime(self, amplifier: str, channel: int, volume_pct: Optional[int] = None) -> bool:
         device = f"{amplifier}_ch{channel}"
+        await self._ensure_amp_on(amplifier)
+        await asyncio.sleep(self._AMP_SETTLE_SEC)
         return await self._play_file(device, self.chime_path, self._gain_or_none(volume_pct))
 
     async def play_tts(self, amplifier: str, channel: int, volume_pct: Optional[int] = None) -> bool:
@@ -113,6 +151,8 @@ class AudioService:
         if not temp_path:
             return False
         try:
+            await self._ensure_amp_on(amplifier)
+            await asyncio.sleep(self._AMP_SETTLE_SEC)
             return await self._play_file(device, Path(temp_path), self._gain_or_none(volume_pct))
         finally:
             Path(temp_path).unlink(missing_ok=True)
@@ -144,6 +184,13 @@ class AudioService:
             source = self.chime_path
 
         try:
+            # Power on every distinct amp involved in this room (handles
+            # cross-device stereo where left/right live on different amps).
+            amps_to_wake = {a for a in (left_amp, right_amp) if a}
+            if amps_to_wake:
+                await asyncio.gather(*(self._ensure_amp_on(a) for a in amps_to_wake))
+                await asyncio.sleep(self._AMP_SETTLE_SEC)
+
             tasks = []
             if left_amp and left_ch:
                 tasks.append(self._play_file(f"{left_amp}_ch{left_ch}", source, self._gain_or_none(left_volume_pct)))
