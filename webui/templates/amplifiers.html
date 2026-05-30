@@ -47,6 +47,14 @@
                 </span>
             </div>
 
+            <div class="hw-slider">
+                <span class="hw-slider-label">TEST VOL</span>
+                <input type="range" id="test-vol-slider" min="0" max="100"
+                       value="75"
+                       oninput="onTestVolumeInput(this)">
+                <span class="hw-slider-value" id="test-vol-num">75</span>
+            </div>
+
             <div class="hw-toggle hw-toggle-2pos" id="all-amps-toggle" data-value="off">
                 <span class="hw-toggle-label">AMPS</span>
                 <span class="hw-toggle-track" tabindex="0" role="switch"
@@ -250,6 +258,22 @@ function structuralSnapshot() {
 const initialSnapshot = structuralSnapshot();
 
 let testMode = 'chime';
+
+// Global test-sound volume (0..100). Persisted in localStorage so the user's
+// preferred test level survives reloads. Default 75 — loud enough to verify
+// the speaker is wired but well below "max volume" so it can't shock anyone.
+let testVolume = (() => {
+    const v = parseInt(localStorage.getItem('testVolume') ?? '75', 10);
+    return (Number.isFinite(v) && v >= 0 && v <= 100) ? v : 75;
+})();
+
+function onTestVolumeInput(input) {
+    const v = parseInt(input.value, 10);
+    testVolume = (Number.isFinite(v) && v >= 0 && v <= 100) ? v : 75;
+    const num = document.getElementById('test-vol-num');
+    if (num) num.textContent = String(testVolume);
+    localStorage.setItem('testVolume', String(testVolume));
+}
 let conflictResolution = null;
 let dragState = null;          // {fromJackId, fromRect, currentX, currentY, fromKind, fromMeta}
 let tapSelected = null;        // jack id or null
@@ -1120,7 +1144,7 @@ async function testCell(amp, channel) {
                 amplifier: amp,
                 channel: channel,
                 type: testMode,
-                volume: volumeForCell(amp, channel),
+                volume: testVolume,  // global TEST VOL slider (replaces per-speaker gain for tests)
             }),
         });
     } catch (_) { showToast('Connection error', true); }
@@ -1129,8 +1153,6 @@ async function testCell(amp, channel) {
 async function testRoom(roomId) {
     const room = rooms[roomId];
     if (!room) return;
-    const lSpk = room.left ? speakers[room.left] : null;
-    const rSpk = room.right ? speakers[room.right] : null;
     try {
         await fetch('/api/test/room', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -1138,8 +1160,8 @@ async function testRoom(roomId) {
                 room: roomId,
                 position: 'stereo',
                 type: testMode,
-                volume_left: lSpk?.volume ?? null,
-                volume_right: rSpk?.volume ?? null,
+                volume_left: testVolume,
+                volume_right: testVolume,
             }),
         });
     } catch (_) { showToast('Connection error', true); }
@@ -1300,6 +1322,14 @@ document.addEventListener('keydown', e => {
 
 // Initial state
 setTestMode(testMode);  // sync toggle position with default
+
+// Sync test-volume slider + display with the persisted value
+(() => {
+    const slider = document.getElementById('test-vol-slider');
+    const num = document.getElementById('test-vol-num');
+    if (slider) slider.value = String(testVolume);
+    if (num) num.textContent = String(testVolume);
+})();
 render();
 refreshLedStats();
 loadAmpPower();
