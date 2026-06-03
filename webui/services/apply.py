@@ -92,13 +92,20 @@ async def write_asound_conf(content: str, target: str = "/etc/asound.conf") -> b
 
 
 async def systemctl_action(action: str, units: list[str]) -> dict[str, str]:
-    """Run a single systemctl action against the given units in parallel."""
+    """Run a single systemctl action against the given units in parallel.
+
+    `action` may be a single verb ("restart") or a verb + flag sequence
+    ("enable --now") — it's shell-split into separate argv tokens so multi-word
+    forms work without invoking a shell.
+    """
     if not units:
         return {}
 
+    action_args = action.split()
+
     async def one(unit: str) -> tuple[str, str]:
         proc = await asyncio.create_subprocess_exec(
-            "sudo", "-n", "systemctl", action, unit,
+            "sudo", "-n", "systemctl", *action_args, unit,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -276,11 +283,13 @@ async def apply_config(project_dir: Path, old_config: dict, new_config: dict) ->
         else:
             to_stop.append(unit)
 
-    # Only act on units that have a loaded instance. `list-unit-files` doesn't
-    # cover template instances; `is-active` returns "active"/"inactive"/"failed"
-    # for known instances and "unknown" otherwise.
-    async def known(units: list[str]) -> list[str]:
-        keep = []
+    # `is-active` returns "active"/"inactive"/"failed" for known instances and
+    # "unknown" for ones that have never been enabled. We split on that so a
+    # newly-added room (no systemd instance yet) goes through `enable --now`
+    # instead of being silently dropped.
+    async def partition_by_state(units: list[str]) -> tuple[list[str], list[str]]:
+        known: list[str] = []
+        unknown: list[str] = []
         for unit in units:
             proc = await asyncio.create_subprocess_exec(
                 "systemctl", "is-active", unit,
@@ -289,17 +298,20 @@ async def apply_config(project_dir: Path, old_config: dict, new_config: dict) ->
             )
             out, _ = await proc.communicate()
             state = out.decode().strip()
-            if state and state != "unknown":
-                keep.append(unit)
-        return keep
+            (known if state and state != "unknown" else unknown).append(unit)
+        return known, unknown
 
-    restart_real = await known(to_restart)
-    stop_real = await known(to_stop)
+    restart_real, enable_real = await partition_by_state(to_restart)
+    stop_real, _ = await partition_by_state(to_stop)  # only stop what exists
 
     restart_results = await systemctl_action("restart", restart_real)
+    # `enable --now` both creates the systemd-wants symlink and starts the unit
+    # in one go — so a newly-added room is fully wired without manual setup.
+    enable_results = await systemctl_action("enable --now", enable_real) if enable_real else {}
     stop_results = await systemctl_action("stop", stop_real)
 
     result["services_restarted"] = restart_real
+    result["services_enabled"] = enable_real
     result["services_stopped"] = stop_real
-    result["service_results"] = {**restart_results, **stop_results}
+    result["service_results"] = {**restart_results, **enable_results, **stop_results}
     return result
