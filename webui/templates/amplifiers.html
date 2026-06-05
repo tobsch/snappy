@@ -1187,12 +1187,15 @@ async function openAddAmpModal() {
             html += '<h4 class="addamp-section">Detected, not yet configured</h4><ul class="addamp-list">';
             for (const c of candidates) {
                 const suggested = nextAmpId();
+                // Auto-detect playback channels from /proc/asound; fall back to 8
+                // if the stream profile couldn't be parsed (0 = unknown).
+                const detectedCh = c.playback_channels > 0 ? c.playback_channels : 8;
                 html += `<li class="addamp-row">
                     <div class="addamp-name">${escapeHtml(c.description)} <span class="text-muted">(card ${escapeHtml(c.id)})</span></div>
                     <div class="addamp-path">${escapeHtml(c.usb_path || '')}</div>
                     <form class="addamp-form" onsubmit="submitAddAmp(event, '${escapeHtml(c.id)}')">
                         <label>ID <input type="text" name="amp_id" value="${escapeHtml(suggested)}" pattern="[a-z0-9_]+" required></label>
-                        <label>Channels <input type="number" name="channels" value="8" min="1" max="32" required></label>
+                        <label>Channels <input type="number" name="channels" value="${detectedCh}" min="1" max="32" required></label>
                         <label title="BCM GPIO line for SHDN. Leave blank if the amp is always-on (no GPIO control)."
                                >GPIO <input type="number" name="gpio" min="0" max="63" placeholder="optional"></label>
                         <button type="submit" class="btn btn-primary btn-small">Add</button>
