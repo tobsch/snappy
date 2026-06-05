@@ -1,2 +1,9 @@
 __pycache__/
 test.wav
+*.bak
+*.bak.*
+# Host-local lox-audioserver bits the user runs from this dir (compose data,
+# watchdog service, etc.) — not part of the tooling.
+lox-audioserver/
+# Binary patches for upstream addons (built locally, regenerated from PRs).
+lox-patches/

@@ -34,6 +34,18 @@
       "latency": 0,
       "volume": 100
     },
+    "einliegerwohnung_left": {
+      "amplifier": "amp3",
+      "channel": 1,
+      "latency": 0,
+      "volume": 100
+    },
+    "einliegerwohnung_right": {
+      "amplifier": "amp3",
+      "channel": 2,
+      "latency": 0,
+      "volume": 100
+    },
     "elternbad_left": {
       "amplifier": "amp2",
       "channel": 4,
@@ -58,6 +70,30 @@
       "latency": 0,
       "volume": 100
     },
+    "kinderzimmer_linda_left": {
+      "amplifier": "amp2",
+      "channel": 5,
+      "latency": 0,
+      "volume": 100
+    },
+    "kinderzimmer_linda_right": {
+      "amplifier": "amp2",
+      "channel": 6,
+      "latency": 0,
+      "volume": 100
+    },
+    "kinderzimmer_lou_left": {
+      "amplifier": "amp2",
+      "channel": 7,
+      "latency": 0,
+      "volume": 100
+    },
+    "kinderzimmer_lou_right": {
+      "amplifier": "amp2",
+      "channel": 8,
+      "latency": 0,
+      "volume": 100
+    },
     "kueche_left": {
       "amplifier": "amp1",
       "channel": 1,
@@ -66,6 +102,18 @@
     },
     "kueche_right": {
       "amplifier": "amp1",
+      "channel": 2,
+      "latency": 0,
+      "volume": 100
+    },
+    "schlafzimmer_left": {
+      "amplifier": "amp2",
+      "channel": 1,
+      "latency": 0,
+      "volume": 100
+    },
+    "schlafzimmer_right": {
+      "amplifier": "amp2",
       "channel": 2,
       "latency": 0,
       "volume": 100
@@ -94,15 +142,9 @@
       "latency": 0,
       "volume": 100
     },
-    "schlafzimmer_left": {
-      "amplifier": "amp2",
-      "channel": 1,
-      "volume": 100,
-      "latency": 0
-    },
-    "schlafzimmer_right": {
-      "amplifier": "amp2",
-      "channel": 2,
+    "gaestebad_mono": {
+      "amplifier": "amp3",
+      "channel": 3,
       "volume": 100,
       "latency": 0
     }
@@ -115,6 +157,12 @@
       "zones": [
         "essen"
       ]
+    },
+    "einliegerwohnung": {
+      "left": "einliegerwohnung_left",
+      "name": "Einliegerwohnung",
+      "right": "einliegerwohnung_right",
+      "zones": []
     },
     "elternbad": {
       "left": "elternbad_left",
@@ -133,17 +181,17 @@
       ]
     },
     "kinderzimmer_linda": {
-      "left": null,
+      "left": "kinderzimmer_linda_left",
       "name": "Kinderzimmer Linda",
-      "right": null,
+      "right": "kinderzimmer_linda_right",
       "zones": [
         "linda"
       ]
     },
     "kinderzimmer_lou": {
-      "left": null,
+      "left": "kinderzimmer_lou_left",
       "name": "Kinderzimmer Lou",
-      "right": null,
+      "right": "kinderzimmer_lou_right",
       "zones": [
         "louise"
       ]
@@ -177,6 +225,11 @@
       "zones": [
         "wohnen"
       ]
+    },
+    "gaestebad": {
+      "name": "Gästebad",
+      "zones": [],
+      "mono": "gaestebad_mono"
     }
   },
   "zones": {
