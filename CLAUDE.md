@@ -239,6 +239,14 @@ itself — AirPlay/Spotify/Music Assistant are handled by lox directly.
 native rate/channels are resampled/remixed automatically — **no lox-side
 sample-rate config needed**.
 
+The bridge also POSTs a status heartbeat every 5s to
+`http://127.0.0.1:7090/api/linein/<lox_input_id>/bridge-status` — lox marks a
+line-in **connected/online only while heartbeats arrive** (15s staleness
+window); without them the input shows offline in Loxone even while audio
+streams. lox must have the input registered in `inputs.lineIn.inputs[]` with an
+explicit `id` matching `lox_input_id` (the admin UI for this is broken in
+4.0.0-beta.13 — see issue #286 — so add it by editing `data/config.json`).
+
 Config lives under `inputs` in `speaker_config.json`:
 ```json
 "inputs": {

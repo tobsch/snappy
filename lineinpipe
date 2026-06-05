@@ -23,6 +23,8 @@ import os
 import socket
 import subprocess
 import sys
+import threading
+import urllib.request
 
 # lox lineIn TCP-ingest expects raw S16_LE at these defaults (44100/2ch).
 LOX_RATE = 44100
@@ -34,10 +36,39 @@ CONFIG = os.environ.get(
 LOX_HOST = os.environ.get("LOX_HOST", "127.0.0.1")
 LOX_PORT = int(os.environ.get("LOX_PORT", "7080"))
 
+# lox marks a line-in "connected" only while it keeps receiving status
+# heartbeats (15s staleness window). Without these POSTs the input shows
+# OFFLINE in Loxone even though audio is streaming. We POST to the admin/api
+# on 7090 every HEARTBEAT_SECS.
+LOX_API_HOST = os.environ.get("LOX_API_HOST", "127.0.0.1")
+LOX_API_PORT = int(os.environ.get("LOX_API_PORT", "7090"))
+HEARTBEAT_SECS = int(os.environ.get("LINEIN_HEARTBEAT_SECS", "5"))
+
 
 def fail(msg: str) -> "NoReturn":
     print(f"lineinpipe: {msg}", file=sys.stderr)
     sys.exit(1)
+
+
+def _post_status(lox_id: str, state: str, device: str) -> None:
+    """POST one status heartbeat so lox keeps the input marked connected."""
+    url = f"http://{LOX_API_HOST}:{LOX_API_PORT}/api/linein/{lox_id}/bridge-status"
+    data = json.dumps({"state": state, "device": device}).encode()
+    req = urllib.request.Request(
+        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
+    )
+    try:
+        urllib.request.urlopen(req, timeout=5).close()
+    except Exception as e:  # noqa: BLE001 — heartbeat is best-effort
+        print(f"lineinpipe: heartbeat failed: {e}", file=sys.stderr)
+
+
+def _heartbeat_loop(lox_id: str, device: str, stop: threading.Event) -> None:
+    """Send a 'running' heartbeat immediately and every HEARTBEAT_SECS until
+    stopped. Runs in a daemon thread alongside the audio relay."""
+    while not stop.is_set():
+        _post_status(lox_id, "running", device)
+        stop.wait(HEARTBEAT_SECS)
 
 
 def main() -> None:
@@ -56,6 +87,7 @@ def main() -> None:
         fail(f"input {input_id!r} not found in {CONFIG}")
 
     lox_id = inp.get("lox_input_id", input_id)
+    card = inp.get("card", input_id)
     pcm = f"input_{input_id}"
 
     try:
@@ -77,6 +109,13 @@ def main() -> None:
         stdout=subprocess.PIPE,
     )
 
+    # Keep lox's "connected" status fresh while we stream.
+    stop_heartbeat = threading.Event()
+    hb = threading.Thread(
+        target=_heartbeat_loop, args=(lox_id, card, stop_heartbeat), daemon=True
+    )
+    hb.start()
+
     try:
         assert arecord.stdout is not None
         while True:
@@ -87,6 +126,11 @@ def main() -> None:
     except (BrokenPipeError, ConnectionResetError, OSError) as e:
         print(f"lineinpipe: stream interrupted: {e}", file=sys.stderr)
     finally:
+        # Stop heartbeating; lox flips the input offline once the last status
+        # goes stale (~15s). We deliberately do NOT post a final status — lox's
+        # `connected` flag tracks heartbeat freshness, not the state string, so
+        # a parting POST would keep it "connected" for another 15s.
+        stop_heartbeat.set()
         try:
             arecord.terminate()
             arecord.wait(timeout=2)
