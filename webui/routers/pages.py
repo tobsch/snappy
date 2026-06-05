@@ -37,9 +37,25 @@ async def rack(request: Request):
             "online": card is not None,
         })
 
+    inputs = []
+    for input_id, inp in config_svc.get_inputs().items():
+        card = find_card_for_amp(cards, inp.get("card", input_id))
+        inputs.append({
+            "id": input_id,
+            "card": inp.get("card", input_id),
+            "name": inp.get("name", input_id),
+            "channels": inp.get("channels", 2),
+            "sample_rate": inp.get("sample_rate", 48000),
+            "lox_input_id": inp.get("lox_input_id", input_id),
+            "autostart": inp.get("autostart", True),
+            "online": card is not None,
+            "capture_channels": (card or {}).get("capture_channels", 0),
+        })
+
     return templates.TemplateResponse("amplifiers.html", {
         "request": request,
         "amps": amps,
+        "inputs": inputs,
         "speakers": config_svc.get_speakers(),
         "rooms": config_svc.get_rooms(),
         "max_volume": config_svc.get_max_volume(),

@@ -1,0 +1,16 @@
+[Unit]
+Description=Line-in pipe %i -> lox-audioserver (ALSA capture TCP ingest)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tobias
+# Reconnects on its own: arecord -> TCP 127.0.0.1:7080. If lox restarts or the
+# capture device drops, the bridge exits non-zero and systemd restarts it.
+ExecStart=/usr/local/bin/lineinpipe %i
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

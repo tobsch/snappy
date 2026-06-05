@@ -325,6 +325,42 @@ pcm.room_{room_id} {{
 """
 
 
+def generate_inputs_config(config: dict) -> str:
+    """Generate capture PCMs for configured audio inputs (USB line-in → lox).
+
+    Each input maps a capture card to an `input_<id>` PCM. It's a `type plug`
+    so the lineinpipe bridge can request lox's canonical 44.1 kHz / stereo
+    regardless of the card's native rate or channel count — plug resamples and
+    up/down-mixes as needed, so no lox-side sample-rate config is required.
+
+    No softvol here: input gain is regulated by lox per zone.
+    """
+    inputs = config.get("inputs", {})
+    if not inputs:
+        return ""
+
+    output = """
+#########################################
+# INPUT DEFINITIONS (USB capture → lox lineIn)
+#########################################
+"""
+    for input_id in sorted(inputs.keys()):
+        inp = inputs[input_id]
+        card = inp.get("card", input_id)
+        channels = inp.get("channels", 2)
+        rate = inp.get("sample_rate", 48000)
+        output += f"""
+# input_{input_id} - capture from {card} ({channels}ch @ {rate}Hz native)
+pcm.input_{input_id} {{
+    type plug
+    slave.pcm "hw:{card},0"
+    slave.channels {channels}
+    slave.rate {rate}
+}}
+"""
+    return output
+
+
 def generate_all_rooms_config(rooms: dict) -> str:
     """Generate a combined stereo device that plays to all rooms."""
     if not rooms:
@@ -486,6 +522,15 @@ def main():
     # Generate all_rooms combined output
     output += generate_all_rooms_config(rooms)
     print(f"  all_rooms: combined output to all speakers", file=sys.stderr)
+
+    # Generate input (capture) definitions
+    inputs = config.get("inputs", {})
+    if inputs:
+        output += generate_inputs_config(config)
+        for input_id in sorted(inputs.keys()):
+            inp = inputs[input_id]
+            print(f"  input_{input_id}: capture from {inp.get('card', input_id)} "
+                  f"→ lox '{inp.get('lox_input_id', input_id)}'", file=sys.stderr)
 
     # Print to stdout
     print(output)

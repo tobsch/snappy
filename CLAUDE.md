@@ -83,8 +83,10 @@ Originally built for Wondom GAB8 amplifiers but works with any multi-channel USB
 │   ├── 99-wondom-gab8.rules # udev rules for persistent amp naming
 │   ├── 99-amp-volume.rules  # udev rules to restore ALSA mixer on reconnect
 │   └── 99-fernseher.rules   # udev rules for TV audio input
+├── lineinpipe               # Bridge: ALSA capture → lox lineIn TCP ingest (installed to /usr/local/bin/)
 ├── services/
 │   ├── sendspin@.service    # Systemd template for sendspin clients (PRIMARY)
+│   ├── lineinpipe@.service  # Systemd template for line-in bridges (one per input)
 │   └── amp-volume.service   # Sets ALSA mixer levels to 100% at boot
 ├── powermanager/
 │   ├── powermanager.sh      # Auto GPIO SHDN control based on ALSA activity
@@ -223,6 +225,57 @@ The config file `speaker_config.json` defines the ALSA layer:
 ```
 
 Zones are managed in lox-audioserver, not in this config file.
+
+## Audio Inputs (line-in → lox-audioserver)
+
+In addition to outputs (amps→speakers→rooms), the tooling can feed **physical
+audio captures** (e.g. a TV's line-out via a USB audio adapter) into
+lox-audioserver as `lineIn` sources. This is the only ingest path lox can't do
+itself — AirPlay/Spotify/Music Assistant are handled by lox directly.
+
+**Data flow**: `arecord` (ALSA capture) → `lineinpipe` bridge → lox TCP ingest
+(`127.0.0.1:7080`) → lox zone. The bridge captures at lox's canonical
+44.1 kHz / stereo; the `input_<id>` ALSA PCM is a `type plug` so the card's
+native rate/channels are resampled/remixed automatically — **no lox-side
+sample-rate config needed**.
+
+Config lives under `inputs` in `speaker_config.json`:
+```json
+"inputs": {
+  "linein": {
+    "card": "amp4",            // ALSA capture card id (persistent via udev rule)
+    "channels": 2,             // native capture channel count
+    "sample_rate": 48000,      // native capture rate (plug resamples to 44100)
+    "lox_input_id": "linein",  // id sent in the TCP handshake; map to a zone's lineIn source
+    "name": "USB Line-In",     // UI display name
+    "autostart": true          // enable lineinpipe@<id> on apply
+  }
+}
+```
+
+**Setup**:
+```bash
+# Install the bridge + service template (once)
+sudo cp lineinpipe /usr/local/bin/lineinpipe
+sudo cp services/lineinpipe@.service /etc/systemd/system/
+sudo systemctl daemon-reload
+```
+Then add an input via the web UI's **Inputs** module (picks any capture card
+with `capture_channels > 0`), or POST to `/api/config/inputs/<id>`. The apply
+pipeline regenerates `/etc/asound.conf` and enables `lineinpipe@<id>.service`.
+
+**lox side (manual)**: in the lox admin UI, set the target zone's
+`inputs.lineIn.source.id` to the input's `lox_input_id`. lox defaults to
+44100/2ch ingest, which matches what the bridge sends.
+
+```bash
+# Inspect / debug
+systemctl status 'lineinpipe@linein'
+journalctl -u 'lineinpipe@linein' -f
+aplay -D room_kueche <(arecord -D input_linein -f S16_LE -c2 -r44100 -t raw -)  # monitor a live input
+```
+
+Design notes and rationale: `docs/2026-06-05-inputs-plan.md`.
 
 ## Web Interface
 

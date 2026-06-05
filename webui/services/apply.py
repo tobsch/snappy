@@ -54,6 +54,63 @@ def affected_rooms(old_config: dict, new_config: dict) -> list[str]:
     return sorted(affected)
 
 
+# Fields whose change requires the lineinpipe bridge to restart (the capture
+# format / target changed). `autostart` is handled separately (start vs stop).
+INPUT_FIELDS = ("card", "channels", "sample_rate", "lox_input_id")
+
+
+def affected_inputs(old_config: dict, new_config: dict) -> list[str]:
+    """Return input ids whose bridge needs reconciling (added, removed, or any
+    capture/target field or autostart flag changed)."""
+    old = old_config.get("inputs", {})
+    new = new_config.get("inputs", {})
+    affected: list[str] = []
+    for iid in set(old) | set(new):
+        o, n = old.get(iid), new.get(iid)
+        if o is None or n is None:
+            affected.append(iid)
+            continue
+        if any(o.get(f) != n.get(f) for f in INPUT_FIELDS) or \
+                bool(o.get("autostart", True)) != bool(n.get("autostart", True)):
+            affected.append(iid)
+    return sorted(affected)
+
+
+async def reconcile_input_services(old_config: dict, new_config: dict) -> dict[str, str]:
+    """Start/restart lineinpipe@<id> for affected autostart inputs, stop+disable
+    the rest. Newly-added and changed inputs both go through enable + restart so
+    the running bridge always reflects the current config."""
+    new = new_config.get("inputs", {})
+    to_start: list[str] = []
+    to_stop: list[str] = []
+    for iid in affected_inputs(old_config, new_config):
+        unit = f"lineinpipe@{iid}.service"
+        n = new.get(iid)
+        if n and n.get("autostart", True):
+            to_start.append(unit)
+        else:
+            to_stop.append(unit)
+
+    results: dict[str, str] = {}
+    if to_start:
+        # enable creates the wants-symlink (idempotent); restart starts-or-restarts.
+        await systemctl_action("enable", to_start)
+        results.update(await systemctl_action("restart", to_start))
+    if to_stop:
+        results.update(await systemctl_action("disable --now", to_stop))
+    return results
+
+
+async def apply_inputs(project_dir: Path, old_config: dict, new_config: dict) -> dict:
+    """Apply pipeline for input changes: regenerate ALSA (input_<id> PCMs now
+    differ) and reconcile lineinpipe services. Lighter than apply_config — no
+    softvol seeding or sendspin restarts, since inputs don't touch rooms."""
+    alsa = await regenerate_alsa(project_dir)
+    alsa_changed = await write_asound_conf(alsa)
+    input_services = await reconcile_input_services(old_config, new_config)
+    return {"alsa_changed": alsa_changed, "input_services": input_services}
+
+
 async def regenerate_alsa(project_dir: Path) -> str:
     """Run generate_alsa_config.py and return its stdout."""
     proc = await asyncio.create_subprocess_exec(

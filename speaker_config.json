@@ -24,7 +24,16 @@
       "channels": 2
     }
   },
-  "inputs": {},
+  "inputs": {
+    "linein": {
+      "card": "amp4",
+      "channels": 2,
+      "sample_rate": 48000,
+      "lox_input_id": "linein",
+      "name": "USB Line-In",
+      "autostart": true
+    }
+  },
   "speakers": {
     "backupkueche_left": {
       "amplifier": "amp1",

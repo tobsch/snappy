@@ -7,8 +7,8 @@ from pydantic import BaseModel
 
 from services.config import ConfigService
 from services.audio import AudioService
-from services.apply import apply_config, amixer_set, linear_to_amixer_pct
-from services.audio_cards import detect_cards, annotate_configured_amps
+from services.apply import apply_config, apply_inputs, amixer_set, linear_to_amixer_pct
+from services.audio_cards import detect_cards, annotate_configured_amps, find_card_for_amp
 
 router = APIRouter(tags=["api"])
 
@@ -177,6 +177,138 @@ async def delete_amp(request: Request, amp_id: str):
     if not config_svc.delete_amplifier(amp_id):
         raise HTTPException(status_code=404, detail="Amp not found")
     return {"status": "ok"}
+
+
+# === Inputs (USB capture → lox lineIn) ===
+
+class InputAdd(BaseModel):
+    card: str | None = None          # ALSA card id; defaults to input_id
+    channels: int = 2                # native capture channel count
+    sample_rate: int = 48000         # native capture rate (plug resamples to 44100)
+    lox_input_id: str | None = None  # id sent in the TCP handshake; defaults to input_id
+    name: str | None = None          # UI display name
+    autostart: bool = True           # enable lineinpipe@<id> on apply
+
+
+class InputUpdate(BaseModel):
+    # card/channels are structural (capture format) — kept out; change those by
+    # re-adding. Here we expose the fields a user tweaks day-to-day.
+    name: str | None = None
+    sample_rate: int | None = None
+    lox_input_id: str | None = None
+    autostart: bool | None = None
+
+
+def _input_with_status(input_id: str, inp: dict, cards: list) -> dict:
+    """Annotate a stored input with live card presence + capture channel count."""
+    card_id = inp.get("card", input_id)
+    card = find_card_for_amp(cards, card_id)
+    return {
+        "id": input_id,
+        "card": card_id,
+        "channels": inp.get("channels", 2),
+        "sample_rate": inp.get("sample_rate", 48000),
+        "lox_input_id": inp.get("lox_input_id", input_id),
+        "name": inp.get("name", input_id),
+        "autostart": inp.get("autostart", True),
+        "online": card is not None,
+        "capture_channels": (card or {}).get("capture_channels", 0),
+    }
+
+
+@router.get("/config/inputs")
+async def list_inputs(request: Request):
+    """List configured inputs, each annotated with whether its capture card is
+    currently present and how many capture channels it advertises."""
+    config_svc = get_config_service(request)
+    cards = detect_cards()
+    return {
+        "inputs": {
+            iid: _input_with_status(iid, inp, cards)
+            for iid, inp in config_svc.get_inputs().items()
+        }
+    }
+
+
+@router.post("/config/inputs/{input_id}")
+async def add_input(request: Request, input_id: str, data: InputAdd):
+    """Register a new audio input and apply (regenerate ALSA + start bridge).
+
+    Like amps, this does NOT write a udev rule — for persistent ALSA naming of
+    the capture card, add a matching rule to devconfig/ and reload udev.
+    """
+    config_svc = get_config_service(request)
+    project_dir = request.app.state.project_dir
+
+    if input_id in config_svc.get_inputs():
+        raise HTTPException(status_code=409, detail=f"Input {input_id!r} already exists")
+    if not input_id.replace("_", "").isalnum():
+        raise HTTPException(status_code=400, detail="input_id must be alphanumeric/underscore")
+
+    old_config = copy.deepcopy(config_svc.config)
+    entry = {
+        "card": data.card or input_id,
+        "channels": int(data.channels),
+        "sample_rate": int(data.sample_rate),
+        "lox_input_id": data.lox_input_id or input_id,
+        "name": data.name or input_id,
+        "autostart": bool(data.autostart),
+    }
+    config_svc.add_input(input_id, entry)
+    new_config = copy.deepcopy(config_svc.config)
+
+    try:
+        result = await apply_inputs(project_dir, old_config, new_config)
+    except RuntimeError as e:
+        config_svc.save(old_config)  # roll back on apply failure
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "ok", "input_id": input_id, **result}
+
+
+@router.patch("/config/inputs/{input_id}")
+async def update_input(request: Request, input_id: str, data: InputUpdate):
+    """Update an input's editable fields and re-apply if anything changed."""
+    config_svc = get_config_service(request)
+    project_dir = request.app.state.project_dir
+
+    if input_id not in config_svc.get_inputs():
+        raise HTTPException(status_code=404, detail="Input not found")
+
+    partial = data.model_dump(exclude_unset=True)
+    if not partial:
+        return {"status": "ok", "input_id": input_id, "applied": {}}
+
+    old_config = copy.deepcopy(config_svc.config)
+    config_svc.update_input(input_id, partial)
+    new_config = copy.deepcopy(config_svc.config)
+
+    try:
+        result = await apply_inputs(project_dir, old_config, new_config)
+    except RuntimeError as e:
+        config_svc.save(old_config)
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "ok", "input_id": input_id, "applied": partial, **result}
+
+
+@router.delete("/config/inputs/{input_id}")
+async def delete_input(request: Request, input_id: str):
+    """Remove an input: stop+disable its bridge and regenerate ALSA."""
+    config_svc = get_config_service(request)
+    project_dir = request.app.state.project_dir
+
+    if input_id not in config_svc.get_inputs():
+        raise HTTPException(status_code=404, detail="Input not found")
+
+    old_config = copy.deepcopy(config_svc.config)
+    config_svc.delete_input(input_id)
+    new_config = copy.deepcopy(config_svc.config)
+
+    try:
+        result = await apply_inputs(project_dir, old_config, new_config)
+    except RuntimeError as e:
+        config_svc.save(old_config)
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "ok", **result}
 
 
 # === Live volume (runtime softvol via amixer) ===
@@ -524,3 +656,88 @@ async def get_sendspin_status(request: Request):
         }
 
     return {"clients": clients}
+
+
+# === Input runtime status ===
+
+@router.get("/system/inputs")
+async def get_input_status(request: Request):
+    """Per-input runtime status: is the lineinpipe bridge active, and is the
+    capture device actually running (PCM state RUNNING)?"""
+    import asyncio
+
+    config_svc = get_config_service(request)
+    inputs = {}
+
+    for input_id, inp in config_svc.get_inputs().items():
+        unit = f"lineinpipe@{input_id}.service"
+        proc = await asyncio.create_subprocess_exec(
+            'systemctl', 'is-active', unit,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await proc.communicate()
+        status = stdout.decode().strip()
+
+        capturing = False
+        card = inp.get("card", input_id)
+        try:
+            status_file = f'/proc/asound/{card}/pcm0c/sub0/status'
+            proc = await asyncio.create_subprocess_exec(
+                'cat', status_file,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            out, _ = await proc.communicate()
+            if 'state: RUNNING' in out.decode():
+                capturing = True
+        except Exception:
+            pass
+
+        inputs[input_id] = {
+            "service": unit,
+            "active": status == "active",
+            "status": status,
+            "capturing": capturing,
+        }
+
+    return {"inputs": inputs}
+
+
+# === Input test (capture a few seconds → play into a room) ===
+
+class InputTestRequest(BaseModel):
+    room: str | None = None   # room id to play into; None → all_rooms
+    seconds: int = 3
+
+
+@router.post("/test/input/{input_id}")
+async def test_input(request: Request, input_id: str, data: InputTestRequest):
+    """Capture a short sample from the input and play it into a room so the user
+    can confirm the line-in is live. Routes input_<id> → room_<room>/all_rooms."""
+    import asyncio
+
+    config_svc = get_config_service(request)
+    if input_id not in config_svc.get_inputs():
+        raise HTTPException(status_code=404, detail="Input not found")
+
+    target = f"room_{data.room}" if data.room else "all_rooms"
+    if data.room and data.room not in config_svc.get_rooms():
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    seconds = max(1, min(10, int(data.seconds)))
+    # arecord from the input PCM → aplay to the room PCM. Both 44100/2ch raw.
+    cmd = (
+        f"arecord -D input_{input_id} -f S16_LE -c 2 -r 44100 -d {seconds} -t raw - 2>/dev/null | "
+        f"aplay -D {target} -f S16_LE -c 2 -r 44100 -t raw - 2>/dev/null"
+    )
+    proc = await asyncio.create_subprocess_shell(cmd)
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=seconds + 5)
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise HTTPException(status_code=500, detail="Test capture/playback timed out")
+
+    if proc.returncode != 0:
+        raise HTTPException(status_code=500, detail="Capture or playback failed")
+    return {"status": "ok", "input": input_id, "target": target, "seconds": seconds}

@@ -1668,6 +1668,46 @@ body.tap-selecting .room-slot { /* keep slots clickable */ }
     text-transform: uppercase;
 }
 
+/* Inputs module — USB capture → lox lineIn */
+.inputs-module .module-faceplate {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+}
+.input-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    width: 100%;
+}
+.input-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 0.75rem;
+    background: rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+}
+.input-row.offline { opacity: 0.6; filter: grayscale(0.5); }
+.input-row-main { display: flex; align-items: center; gap: 0.5rem; min-width: 220px; flex: 1; }
+.input-name { font-weight: 600; color: #e5e7eb; }
+.input-card { color: #94a3b8; font-size: 0.8rem; }
+.input-row-meta {
+    display: flex;
+    gap: 0.9rem;
+    color: #94a3b8;
+    font-size: 0.72rem;
+    font-family: var(--font-mono, monospace);
+}
+.input-auto-on { color: var(--success, #22c55e); }
+.input-auto-off { color: #64748b; }
+.input-row-actions { display: flex; gap: 0.35rem; margin-left: auto; }
+.input-empty { padding: 0.75rem; font-style: italic; }
+/* input bridge LED — reuses .led / .led-on / .led-audio dot styling */
+.input-led { flex: 0 0 auto; }
+
 /* + Add Amplifier button at end of rack-body */
 .add-amp-btn {
     margin-top: 4px;

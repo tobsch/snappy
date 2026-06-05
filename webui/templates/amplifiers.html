@@ -161,9 +161,67 @@
         <button class="add-amp-btn" onclick="openAddAmpModal()" type="button">
             + Add Amplifier
         </button>
+
+        <!-- INPUTS module: USB capture → lox lineIn -->
+        <div class="rack-module inputs-module">
+            <div class="module-faceplate">
+                <div class="screw screw-tl"></div>
+                <div class="screw screw-bl"></div>
+                <div class="screw screw-tr"></div>
+                <div class="screw screw-br"></div>
+
+                <div class="module-meta">
+                    <div class="module-label">INPUTS</div>
+                    <div class="module-sub">Line-in → lox</div>
+                </div>
+
+                <div class="input-list" id="input-list">
+                    {% for inp in inputs %}
+                    <div class="input-row {% if not inp.online %}offline{% endif %}" data-input="{{ inp.id }}">
+                        <div class="input-row-main">
+                            <span class="led input-led" id="input-led-{{ inp.id }}" title="bridge status"></span>
+                            <span class="input-name">{{ inp.name }}</span>
+                            <span class="input-card" title="ALSA capture card{% if not inp.online %} (not detected){% endif %}">
+                                {{ inp.card }}{% if not inp.online %} <span class="offline-badge">offline</span>{% endif %}
+                            </span>
+                        </div>
+                        <div class="input-row-meta">
+                            <span title="capture format">{{ inp.channels }}ch @ {{ inp.sample_rate }}Hz</span>
+                            <span title="lox lineIn source id">lox: {{ inp.lox_input_id }}</span>
+                            <span class="{% if inp.autostart %}input-auto-on{% else %}input-auto-off{% endif %}"
+                                  title="autostart bridge">auto: {{ 'on' if inp.autostart else 'off' }}</span>
+                        </div>
+                        <div class="input-row-actions">
+                            <button class="btn btn-small" onclick="testInput('{{ inp.id }}')" title="Capture 3s and play to all rooms">▶ Test</button>
+                            <button class="btn btn-small" onclick="toggleInputAutostart('{{ inp.id }}', {{ 'false' if inp.autostart else 'true' }})" title="Toggle autostart">{{ '⏸ Stop' if inp.autostart else '▶ Start' }}</button>
+                            <button class="btn btn-small btn-danger" onclick="deleteInput('{{ inp.id }}')" title="Remove input">✕</button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% if not inputs %}
+                    <div class="input-empty text-muted">No inputs configured. Add a USB capture device below.</div>
+                    {% endif %}
+                </div>
+
+                <button class="add-room-btn" onclick="openAddInputModal()" type="button">+ Add Input</button>
+            </div>
+        </div>
     </div>
 
     <svg class="cables-overlay" id="cables-overlay"></svg>
+</div>
+
+<!-- Add input modal -->
+<div id="add-input-modal" class="modal hidden">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Add input</h3>
+            <button class="btn btn-small" onclick="closeAddInputModal()" type="button">&times;</button>
+        </div>
+        <div id="add-input-body">
+            <p class="text-muted">Scanning capture cards…</p>
+        </div>
+    </div>
 </div>
 
 <!-- Set volume modal -->
@@ -266,6 +324,7 @@
 // State
 // ============================================================
 const AMPS = {{ amps | tojson }};
+const INPUTS = {{ inputs | tojson }};
 let speakers = {{ speakers | tojson }};
 let rooms = {{ rooms | tojson }};
 let maxVolume = {{ max_volume | tojson }};   // 0..1
@@ -1424,6 +1483,146 @@ function refreshLedStats() {
 }
 
 // ============================================================
+// Inputs (USB capture → lox lineIn)
+// ============================================================
+function nextInputId() {
+    let max = 0;
+    for (const i of INPUTS) {
+        const m = i.id.match(/^input(\d+)$/);
+        if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return INPUTS.length ? `input${max + 1}` : 'input1';
+}
+
+async function openAddInputModal() {
+    const modal = document.getElementById('add-input-modal');
+    const body = document.getElementById('add-input-body');
+    body.innerHTML = '<p class="text-muted">Scanning capture cards…</p>';
+    modal.classList.remove('hidden');
+
+    try {
+        const r = await fetch('/api/system/audio-cards');
+        const data = await r.json();
+        // Cards that can capture and aren't already an input. A card may be both
+        // an output amp and an input — that's fine (separate ALSA subdevices).
+        const usedCards = new Set(INPUTS.map(i => i.card));
+        const candidates = (data.cards || [])
+            .filter(c => c.capture_channels > 0 && !c.is_skip)
+            .filter(c => !usedCards.has(c.id));
+
+        let html = '';
+        if (candidates.length) {
+            html += '<h4 class="addamp-section">Capture devices</h4><ul class="addamp-list">';
+            for (const c of candidates) {
+                const suggested = nextInputId();
+                const ch = c.capture_channels;
+                html += `<li class="addamp-row">
+                    <div class="addamp-name">${escapeHtml(c.description)} <span class="text-muted">(card ${escapeHtml(c.id)}, ${ch}ch in)</span></div>
+                    <div class="addamp-path">${escapeHtml(c.usb_path || '')}</div>
+                    <form class="addamp-form" onsubmit="submitAddInput(event, '${escapeHtml(c.id)}')">
+                        <label>ID <input type="text" name="input_id" value="${escapeHtml(suggested)}" pattern="[a-z0-9_]+" required></label>
+                        <label>Name <input type="text" name="name" value="${escapeHtml(c.description)}" required></label>
+                        <label>Channels <input type="number" name="channels" value="${ch}" min="1" max="8" required></label>
+                        <label>Rate <input type="number" name="sample_rate" value="48000" min="8000" max="192000" required></label>
+                        <label title="Source id lox expects in the TCP handshake; map it to a zone's lineIn source.">lox id <input type="text" name="lox_input_id" pattern="[a-z0-9_]+" placeholder="= ID"></label>
+                        <button type="submit" class="btn btn-primary btn-small">Add</button>
+                    </form>
+                </li>`;
+            }
+            html += '</ul>';
+            html += `<p class="setting-help">The bridge captures at lox's 44.1kHz/stereo (ALSA <code>plug</code> resamples). In lox, set the zone's <code>inputs.lineIn.source.id</code> to the lox id above. Persistent ALSA naming needs a udev rule in <code>devconfig/</code>.</p>`;
+        } else {
+            html += '<p class="text-muted">No unconfigured capture devices detected.</p>';
+        }
+        body.innerHTML = html;
+    } catch (e) {
+        body.innerHTML = `<p class="error">Failed to scan: ${escapeHtml(e.message)}</p>`;
+    }
+}
+
+function closeAddInputModal() {
+    document.getElementById('add-input-modal').classList.add('hidden');
+}
+
+async function submitAddInput(event, cardId) {
+    event.preventDefault();
+    const form = event.target;
+    const input_id = form.input_id.value.trim().toLowerCase();
+    const name = form.name.value.trim();
+    const channels = parseInt(form.channels.value, 10);
+    const sample_rate = parseInt(form.sample_rate.value, 10);
+    const loxRaw = form.lox_input_id.value.trim();
+    const lox_input_id = loxRaw === '' ? input_id : loxRaw;
+    try {
+        const r = await fetch(`/api/config/inputs/${input_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({card: cardId, channels, sample_rate, lox_input_id, name, autostart: true}),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) { showToast(data.detail || 'Failed to add input', true); return; }
+        showToast(`Added ${input_id}`);
+        closeAddInputModal();
+        setTimeout(() => location.reload(), 500);
+    } catch (e) {
+        showToast('Connection error', true);
+    }
+}
+
+async function deleteInput(inputId) {
+    if (!confirm(`Remove input "${inputId}"? This stops its bridge.`)) return;
+    try {
+        const r = await fetch(`/api/config/inputs/${inputId}`, {method: 'DELETE'});
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) { showToast(data.detail || 'Failed to remove', true); return; }
+        showToast(`Removed ${inputId}`);
+        setTimeout(() => location.reload(), 500);
+    } catch (e) { showToast('Connection error', true); }
+}
+
+async function toggleInputAutostart(inputId, autostart) {
+    try {
+        const r = await fetch(`/api/config/inputs/${inputId}`, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({autostart}),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) { showToast(data.detail || 'Failed', true); return; }
+        showToast(`${inputId} bridge ${autostart ? 'started' : 'stopped'}`);
+        setTimeout(() => location.reload(), 500);
+    } catch (e) { showToast('Connection error', true); }
+}
+
+async function testInput(inputId) {
+    showToast(`Testing ${inputId} → all rooms (3s)…`);
+    try {
+        const r = await fetch(`/api/test/input/${inputId}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({seconds: 3}),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) showToast(data.detail || 'Test failed', true);
+    } catch (e) { showToast('Connection error', true); }
+}
+
+async function loadInputStatus() {
+    if (!INPUTS.length) return;
+    try {
+        const r = await fetch('/api/system/inputs');
+        const data = await r.json();
+        for (const [iid, st] of Object.entries(data.inputs || {})) {
+            const led = document.getElementById(`input-led-${iid}`);
+            if (!led) continue;
+            led.classList.toggle('led-on', st.active);
+            led.classList.toggle('led-audio', st.capturing);
+            led.title = st.capturing ? 'capturing' : (st.active ? 'bridge up (idle)' : 'bridge down');
+        }
+    } catch (_) { /* silent */ }
+}
+
+// ============================================================
 // Wire up DOM events
 // ============================================================
 const rackBody = document.getElementById('rack-body');
@@ -1443,6 +1642,9 @@ document.getElementById('new-room-modal').addEventListener('click', e => {
 });
 document.getElementById('add-amp-modal').addEventListener('click', e => {
     if (e.target.id === 'add-amp-modal') closeAddAmpModal();
+});
+document.getElementById('add-input-modal').addEventListener('click', e => {
+    if (e.target.id === 'add-input-modal') closeAddInputModal();
 });
 document.getElementById('vol-modal').addEventListener('click', e => {
     if (e.target.id === 'vol-modal') closeVolModal();
@@ -1467,7 +1669,9 @@ render();
 refreshLedStats();
 loadAmpPower();
 loadSendspinStatus();
+loadInputStatus();
 setInterval(loadAmpPower, 5000);
 setInterval(loadSendspinStatus, 4000);
+setInterval(loadInputStatus, 5000);
 </script>
 {% endblock %}

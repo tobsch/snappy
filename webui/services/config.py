@@ -86,11 +86,27 @@ class ConfigService:
     def get_inputs(self) -> dict:
         return self.config.get("inputs", {})
 
+    def get_input(self, input_id: str) -> dict | None:
+        return self.get_inputs().get(input_id)
+
     def add_input(self, input_id: str, data: dict) -> None:
         if "inputs" not in self.config:
             self.config["inputs"] = {}
         self.config["inputs"][input_id] = data
         self.save()
+
+    def update_input(self, input_id: str, partial: dict) -> bool:
+        """Merge `partial` into an existing input's config. Returns False if the
+        input is unknown. Only keys present in `partial` are touched."""
+        inputs = self.config.get("inputs") or {}
+        if input_id not in inputs:
+            return False
+        current = dict(inputs[input_id])
+        current.update(partial)
+        inputs[input_id] = current
+        self.config["inputs"] = inputs
+        self.save()
+        return True
 
     def delete_input(self, input_id: str) -> bool:
         if input_id in self.config.get("inputs", {}):

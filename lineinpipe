@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""lineinpipe — stream a configured ALSA capture input into lox-audioserver.
+
+Usage: lineinpipe <input_id>
+
+Reads inputs.<input_id> from speaker_config.json, opens a TCP connection to
+lox's lineIn TCP-ingest (127.0.0.1:7080), sends the lox input id as a
+newline-terminated handshake, then relays raw S16_LE PCM captured via arecord
+from the `input_<id>` ALSA PCM.
+
+The ALSA `plug` layer (see generate_alsa_config.py) resamples/remixes the
+card's native format to lox's canonical 44100 Hz / 2ch, so we always capture
+at those values and lox needs no per-zone sample-rate config — only
+`inputs.lineIn.source.id` = the input's lox_input_id.
+
+Exits non-zero on any error or stream end so systemd (Restart=always)
+reconnects. Installed to /usr/local/bin/lineinpipe; run per input via the
+lineinpipe@<input_id>.service template.
+"""
+
+import json
+import os
+import socket
+import subprocess
+import sys
+
+# lox lineIn TCP-ingest expects raw S16_LE at these defaults (44100/2ch).
+LOX_RATE = 44100
+LOX_CHANNELS = 2
+
+CONFIG = os.environ.get(
+    "SPEAKER_CONFIG", "/home/tobias/multiroom-tooling/speaker_config.json"
+)
+LOX_HOST = os.environ.get("LOX_HOST", "127.0.0.1")
+LOX_PORT = int(os.environ.get("LOX_PORT", "7080"))
+
+
+def fail(msg: str) -> "NoReturn":
+    print(f"lineinpipe: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def main() -> None:
+    if len(sys.argv) != 2:
+        fail("usage: lineinpipe <input_id>")
+    input_id = sys.argv[1]
+
+    try:
+        with open(CONFIG) as f:
+            cfg = json.load(f)
+    except (OSError, ValueError) as e:
+        fail(f"cannot read {CONFIG}: {e}")
+
+    inp = cfg.get("inputs", {}).get(input_id)
+    if not inp:
+        fail(f"input {input_id!r} not found in {CONFIG}")
+
+    lox_id = inp.get("lox_input_id", input_id)
+    pcm = f"input_{input_id}"
+
+    try:
+        sock = socket.create_connection((LOX_HOST, LOX_PORT), timeout=10)
+    except OSError as e:
+        fail(f"cannot connect to lox at {LOX_HOST}:{LOX_PORT}: {e}")
+
+    # Newline-terminated input id, then raw PCM.
+    sock.sendall((lox_id + "\n").encode())
+
+    arecord = subprocess.Popen(
+        [
+            "arecord", "-D", pcm,
+            "-f", "S16_LE",
+            "-c", str(LOX_CHANNELS),
+            "-r", str(LOX_RATE),
+            "-t", "raw", "-",
+        ],
+        stdout=subprocess.PIPE,
+    )
+
+    try:
+        assert arecord.stdout is not None
+        while True:
+            chunk = arecord.stdout.read(4096)
+            if not chunk:
+                break  # arecord exited / capture device gone
+            sock.sendall(chunk)
+    except (BrokenPipeError, ConnectionResetError, OSError) as e:
+        print(f"lineinpipe: stream interrupted: {e}", file=sys.stderr)
+    finally:
+        try:
+            arecord.terminate()
+            arecord.wait(timeout=2)
+        except Exception:
+            arecord.kill()
+        sock.close()
+
+    # Reaching here means the stream ended — exit non-zero so systemd restarts.
+    fail("capture/relay stopped; exiting for restart")
+
+
+if __name__ == "__main__":
+    main()
