@@ -22,6 +22,34 @@ SKIP_DRIVERS = {"vc4-hdmi", "Loopback", "snd-aloop"}
 SKIP_NAME_RE = re.compile(r"^(vc4hdmi|Loopback|HDA|HDMI|bcm2835)", re.IGNORECASE)
 
 
+def _stream_channels(card_id: str) -> dict[str, int]:
+    """Parse /proc/asound/<id>/stream0 to find max playback and capture channels.
+
+    USB audio streams enumerate multiple format profiles per direction; we
+    take the maximum Channels count across all profiles since that's what
+    matters for routing (any narrower path is a subset).
+    """
+    path = Path(f"/proc/asound/{card_id}/stream0")
+    if not path.exists():
+        return {"playback": 0, "capture": 0}
+    try:
+        text = path.read_text(errors="ignore")
+    except OSError:
+        return {"playback": 0, "capture": 0}
+    # Split into named sections: stuff before the first marker is the header.
+    parts = re.split(r"\n(Playback|Capture):\n", text)
+    result = {"playback": 0, "capture": 0}
+    i = 1
+    while i + 1 < len(parts):
+        section = parts[i].lower()
+        body = parts[i + 1]
+        chans = [int(m.group(1)) for m in re.finditer(r"Channels:\s*(\d+)", body)]
+        if chans:
+            result[section] = max(result.get(section, 0), max(chans))
+        i += 2
+    return result
+
+
 def _udev_path_for(card_index: int) -> str | None:
     sysdir = SYS_SOUND / f"card{card_index}"
     if not sysdir.exists():
@@ -90,6 +118,7 @@ def detect_cards() -> list[dict]:
 
         is_usb_audio = driver == "USB-Audio"
         is_skip = (driver in SKIP_DRIVERS) or bool(SKIP_NAME_RE.match(cid))
+        channels = _stream_channels(cid)
 
         cards.append({
             "index": idx,
@@ -100,6 +129,8 @@ def detect_cards() -> list[dict]:
             "usb_path": _udev_path_for(idx),
             "is_usb_audio": is_usb_audio,
             "is_skip": is_skip,
+            "playback_channels": channels["playback"],
+            "capture_channels": channels["capture"],
         })
     return cards
 
