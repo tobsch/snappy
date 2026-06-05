@@ -22,7 +22,11 @@ async def rack(request: Request):
     cards = detect_cards()
     amps = []
     for amp_id, amp in config_svc.get_amplifiers().items():
-        card = find_card_for_amp(cards, amp_id)
+        # Match the physical card by its ALSA short id (amp.card), which is what
+        # /proc/asound enumerates — not the config key. They only coincide once a
+        # udev rule renames the card to the amp_id; an un-renamed amp enumerates
+        # under its generic name (e.g. "Device") and must be matched on that.
+        card = find_card_for_amp(cards, amp.get("card", amp_id))
         amps.append({
             "id": amp_id,
             "card": amp.get("card", amp_id),

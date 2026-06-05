@@ -18,3 +18,7 @@ SUBSYSTEM=="sound", ATTR{id}=="GAB8*", ENV{ID_PATH}=="platform-xhci-hcd.0-usb-0:
 
 # GAB8 on USB controller 0, port 2 -> amp3
 SUBSYSTEM=="sound", ATTR{id}=="GAB8*", ENV{ID_PATH}=="platform-xhci-hcd.0-usb-0:2:1.1", ATTR{id}="amp3"
+
+# C-Media USB Advanced Audio Device (2ch), controller 1, port 1.4 -> amp4
+# Not a GAB8 — enumerates with the generic id "Device", so match by USB path.
+SUBSYSTEM=="sound", ATTR{id}=="Device", ENV{ID_PATH}=="platform-xhci-hcd.1-usb-0:1.4:1.0", ATTR{id}="amp4"

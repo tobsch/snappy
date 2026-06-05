@@ -18,6 +18,10 @@
       "card": "amp3",
       "channels": 8,
       "gpio": 17
+    },
+    "amp4": {
+      "card": "amp4",
+      "channels": 2
     }
   },
   "inputs": {},
