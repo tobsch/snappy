@@ -145,19 +145,35 @@ def get_speaker_info(config: dict, speaker_name: str, max_vol: float) -> dict:
 
 
 def get_room_speakers(config: dict, max_vol: float) -> dict:
-    """Get speaker pairs for each room."""
+    """Get speaker pairs for each room.
+
+    A room is either stereo (left/right speakers, sub optional) OR mono
+    (single `mono` speaker that receives L+R downmixed). If `mono` is set
+    it takes precedence and left/right are ignored.
+    """
     rooms = {}
 
     for room_id, room_info in config["rooms"].items():
+        mono_info = get_speaker_info(config, room_info.get("mono"), max_vol)
+        if mono_info:
+            rooms[room_id] = {
+                "name": room_info.get("name", room_id),
+                "mono": mono_info,
+                "left": None,
+                "right": None,
+                "zones": room_info.get("zones", []),
+            }
+            continue
+
         left_info = get_speaker_info(config, room_info.get("left"), max_vol)
         right_info = get_speaker_info(config, room_info.get("right"), max_vol)
-
         if left_info or right_info:
             rooms[room_id] = {
                 "name": room_info.get("name", room_id),
                 "left": left_info,
                 "right": right_info,
-                "zones": room_info.get("zones", [])
+                "mono": None,
+                "zones": room_info.get("zones", []),
             }
 
     return rooms
@@ -279,22 +295,27 @@ pcm.room_{room_id} {{
 
 
 def generate_mono_config(room_id: str, speaker: dict, position: str) -> str:
-    """Mono room — single softvol path."""
+    """Mono room — single softvol path that sums L+R into one output channel.
+
+    ttable coef 0.5 on each source channel keeps the sum at unity (no clipping
+    when both inputs are at full scale); the per-room softvol still gives live
+    volume control above that.
+    """
     device = speaker["amplifier"]
     channel = speaker["channel"] - 1
     ctrl = f"vol_{room_id}_{position}"
 
     return f"""
 #########
-# room_{room_id} - Mono ({position} only on {device})
+# room_{room_id} - Mono ({position} on {device})
 #########
 
 pcm._internal_{room_id}_{position}_route {{
     type route
     slave.pcm "{device}_dmix"
     slave.channels 8
-    ttable.0.{channel} 1.0
-    ttable.1.{channel} 1.0
+    ttable.0.{channel} 0.5
+    ttable.1.{channel} 0.5
 }}
 {_softvol_path(ctrl, f"_internal_{room_id}_{position}_route", device)}
 pcm.room_{room_id} {{
@@ -312,12 +333,23 @@ def generate_all_rooms_config(rooms: dict) -> str:
     # Collect all unique devices and their channel mappings
     device_channels = defaultdict(list)
     for room_id, room in rooms.items():
-        if room["left"]:
+        if room.get("mono"):
+            # Mono rooms get both source channels into the single output.
+            device_channels[room["mono"]["amplifier"]].append({
+                "channel": room["mono"]["channel"] - 1,
+                "stereo_pos": 0,
+            })
+            device_channels[room["mono"]["amplifier"]].append({
+                "channel": room["mono"]["channel"] - 1,
+                "stereo_pos": 1,
+            })
+            continue
+        if room.get("left"):
             device_channels[room["left"]["amplifier"]].append({
                 "channel": room["left"]["channel"] - 1,
                 "stereo_pos": 0
             })
-        if room["right"]:
+        if room.get("right"):
             device_channels[room["right"]["amplifier"]].append({
                 "channel": room["right"]["channel"] - 1,
                 "stereo_pos": 1
@@ -428,10 +460,14 @@ def main():
     # Generate config for each room
     for room_id in sorted(rooms.keys()):
         room = rooms[room_id]
-        left = room["left"]
-        right = room["right"]
+        mono = room.get("mono")
+        left = room.get("left")
+        right = room.get("right")
 
-        if left and right:
+        if mono:
+            output += generate_mono_config(room_id, mono, "mono")
+            print(f"  room_{room_id}: mono on {mono['amplifier']}_ch{mono['channel']} vol={mono['volume']:.0%}", file=sys.stderr)
+        elif left and right:
             if left["amplifier"] == right["amplifier"]:
                 # Same device - use route plugin
                 output += generate_same_device_config(room_id, left, right)

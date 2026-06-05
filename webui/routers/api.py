@@ -41,6 +41,8 @@ class RoomUpdate(BaseModel):
     name: str
     left: str | None = None
     right: str | None = None
+    sub: str | None = None
+    mono: str | None = None      # single-speaker room: L+R get downmixed onto this channel
     zones: list[str] = []
 
 
@@ -200,7 +202,7 @@ async def set_channel_volume(request: Request, data: LiveVolumeRequest):
     target = None
     spk_id_match = None
     for rid, room in config_svc.get_rooms().items():
-        for side in ("left", "right", "sub"):
+        for side in ("left", "right", "sub", "mono"):
             spk_id = room.get(side)
             if not spk_id:
                 continue
@@ -258,7 +260,7 @@ async def test_channel(request: Request, data: ChannelTestRequest):
 
 class RoomTestRequest(BaseModel):
     room: str
-    position: str = "stereo"           # "left", "right", or "stereo"
+    position: str = "stereo"           # "left", "right", "stereo", or "mono"
     type: str = "chime"                # "tts" or "chime"
     volume_left: int | None = None     # live slider preview
     volume_right: int | None = None
@@ -267,7 +269,8 @@ class RoomTestRequest(BaseModel):
 @router.post("/test/room")
 async def test_room(request: Request, data: RoomTestRequest):
     """Play test sound on a room — fans out to per-channel devices so each
-    side gets its own live slider gain."""
+    side gets its own live slider gain. Mono rooms play once on the single
+    channel."""
     audio_svc = get_audio_service(request)
     config_svc = get_config_service(request)
 
@@ -283,6 +286,21 @@ async def test_room(request: Request, data: RoomTestRequest):
         if not spk:
             return None, None
         return spk.get("amplifier"), spk.get("channel")
+
+    # Mono rooms are identified by the `mono` field. The "left side" slot in
+    # play_room_stereo carries the single mono channel; the right side is left
+    # unwired so no second device is opened.
+    if room.get("mono"):
+        mono_amp, mono_ch = lookup("mono")
+        success = await audio_svc.play_room_stereo(
+            mono_amp, mono_ch, data.volume_left,
+            None, None, None,
+            sound=data.type,
+            text=room.get("name", data.room),
+        )
+        if not success:
+            raise HTTPException(status_code=500, detail="Playback failed")
+        return {"status": "ok"}
 
     left_amp, left_ch = (None, None)
     right_amp, right_ch = (None, None)
@@ -349,7 +367,7 @@ async def config_apply(request: Request, data: ApplyRequest):
     # Speaker-room consistency
     speaker_used_by: dict[str, str] = {}
     for room_id, room in rooms.items():
-        for side in ("left", "right", "sub"):
+        for side in ("left", "right", "sub", "mono"):
             spk_id = room.get(side)
             if not spk_id:
                 continue

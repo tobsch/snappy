@@ -16,10 +16,13 @@ import tempfile
 from pathlib import Path
 
 
+ROOM_SIDES = ("left", "right", "sub", "mono")
+
+
 def affected_rooms(old_config: dict, new_config: dict) -> list[str]:
     """Return room ids whose effective channel mapping changed.
 
-    A room is affected if its left/right/sub speaker assignment changed,
+    A room is affected if its left/right/sub/mono speaker assignment changed,
     or any of those speakers' (amp, channel) changed.
     """
     old_speakers = old_config.get("speakers", {})
@@ -40,7 +43,7 @@ def affected_rooms(old_config: dict, new_config: dict) -> list[str]:
     for rid in room_ids:
         old = old_rooms.get(rid, {})
         new = new_rooms.get(rid, {})
-        for side in ("left", "right", "sub"):
+        for side in ROOM_SIDES:
             if channel_of(old_speakers, old.get(side)) != channel_of(new_speakers, new.get(side)):
                 affected.append(rid)
                 break
@@ -124,7 +127,7 @@ async def restart_services(units: list[str]) -> dict[str, str]:
 def room_has_speakers(room: dict | None) -> bool:
     if not room:
         return False
-    for side in ("left", "right", "sub"):
+    for side in ROOM_SIDES:
         if room.get(side):
             return True
     return False
@@ -200,7 +203,7 @@ async def seed_softvols(config: dict) -> dict[str, str]:
 
     targets = []
     for rid, room in rooms.items():
-        for side in ("left", "right", "sub"):
+        for side in ROOM_SIDES:
             spk_id = room.get(side)
             if not spk_id:
                 continue

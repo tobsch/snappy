@@ -342,11 +342,13 @@ function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+const ROOM_SIDES = ['left', 'right', 'sub', 'mono'];
+
 function findCellAssignment(amp, channel) {
     for (const [spkId, spk] of Object.entries(speakers)) {
         if (spk.amplifier === amp && spk.channel === channel) {
             for (const [rid, r] of Object.entries(rooms)) {
-                for (const side of ['left', 'right', 'sub']) {
+                for (const side of ROOM_SIDES) {
                     if (r[side] === spkId) return {roomId: rid, side, speakerId: spkId};
                 }
             }
@@ -537,46 +539,61 @@ function renderRoomSlots() {
     }
 
     container.innerHTML = entries.map(([rid, room]) => {
-        const sides = ['left', 'right'];
-        if (room.sub !== undefined) sides.push('sub');
+        const isMono = room.mono !== undefined;
         const color = colorForRoom(rid);
-        const haveLeft = !!room.left;
-        const haveRight = !!room.right;
-        const status = (haveLeft && haveRight) ? 'complete'
-                     : (haveLeft || haveRight) ? 'partial' : 'empty';
-        const sideRows = sides.map(side => {
+
+        const sideLabel = (side) => side === 'mono' ? 'M' : side[0].toUpperCase();
+        const renderSideRow = (side) => {
             const spkId = room[side];
             const spk = spkId ? speakers[spkId] : null;
             const placed = !!spk;
             return `
-                <div class="room-side-row ${placed ? 'placed' : 'empty'}">
+                <div class="room-side-row ${placed ? 'placed' : 'empty'} ${side === 'mono' ? 'mono' : ''}">
                     <div class="jack jack-room ${placed ? 'connected' : ''}"
                          data-room="${rid}" data-side="${side}"
                          style="--cable-color: ${color}">
                         <div class="jack-port" data-jack-id="${jackIdForRoomSide(rid, side)}"></div>
-                        <div class="jack-label">${side[0].toUpperCase()}</div>
+                        <div class="jack-label">${sideLabel(side)}</div>
                     </div>
                     <button class="btn-side-test" ${placed ? '' : 'disabled'}
                             onclick="testRoomSide('${rid}', '${side}')"
                             title="Play test on this side">▶</button>
                 </div>
             `;
-        }).join('');
+        };
 
-        const subToggle = (room.sub === undefined)
-            ? `<button class="link-btn" onclick="addSub('${rid}')">+ sub</button>`
-            : `<button class="link-btn" onclick="removeSub('${rid}')">− sub</button>`;
+        let sides, status, anyConnected, modeToggle;
+        if (isMono) {
+            sides = ['mono'];
+            anyConnected = !!room.mono;
+            status = anyConnected ? 'complete' : 'empty';
+            modeToggle = `<button class="link-btn" onclick="setRoomStereo('${rid}')" title="Switch to stereo (L+R)">⇄ stereo</button>`;
+        } else {
+            sides = ['left', 'right'];
+            if (room.sub !== undefined) sides.push('sub');
+            const haveLeft = !!room.left;
+            const haveRight = !!room.right;
+            anyConnected = haveLeft || haveRight;
+            status = (haveLeft && haveRight) ? 'complete'
+                   : (haveLeft || haveRight) ? 'partial' : 'empty';
+            const subToggle = (room.sub === undefined)
+                ? `<button class="link-btn" onclick="addSub('${rid}')">+ sub</button>`
+                : `<button class="link-btn" onclick="removeSub('${rid}')">− sub</button>`;
+            const monoToggle = `<button class="link-btn" onclick="setRoomMono('${rid}')" title="Switch to single-speaker mono (L+R downmixed)">⇄ mono</button>`;
+            modeToggle = `${subToggle} ${monoToggle}`;
+        }
+        const sideRows = sides.map(renderSideRow).join('');
 
         return `
-            <div class="room-slot status-${status}" data-room="${rid}"
+            <div class="room-slot status-${status} ${isMono ? 'mono-room' : ''}" data-room="${rid}"
                  style="--room-color: ${color}">
                 <div class="room-slot-header">
                     <span class="room-status-dot"></span>
-                    <span class="room-name" onclick="renameRoom('${rid}')" title="Click to rename">${escapeHtml(room.name || rid)}</span>
+                    <span class="room-name" onclick="renameRoom('${rid}')" title="Click to rename">${escapeHtml(room.name || rid)}${isMono ? ' <span class="room-mode-tag">MONO</span>' : ''}</span>
                     <div class="room-slot-actions">
-                        <button class="link-btn" onclick="testRoom('${rid}')" title="Stereo test"
-                                ${(haveLeft || haveRight) ? '' : 'disabled'}>▶ test</button>
-                        ${subToggle}
+                        <button class="link-btn" onclick="testRoom('${rid}')" title="${isMono ? 'Mono test' : 'Stereo test'}"
+                                ${anyConnected ? '' : 'disabled'}>▶ test</button>
+                        ${modeToggle}
                         <button class="link-btn danger" onclick="deleteRoom('${rid}')" title="Delete room">✕</button>
                     </div>
                 </div>
@@ -604,7 +621,7 @@ function renderCables() {
 
     // Persistent cables: one per (amp_jack, room_jack) pair
     for (const [rid, room] of Object.entries(rooms)) {
-        for (const side of ['left', 'right', 'sub']) {
+        for (const side of ROOM_SIDES) {
             const spkId = room[side];
             if (!spkId) continue;
             const spk = speakers[spkId];
@@ -705,7 +722,12 @@ function computeChanges() {
         if (!o && n) { changes.push(`Add room "${n.name || rid}"`); continue; }
         if (o && !n) { changes.push(`Remove room "${o.name || rid}"`); continue; }
         if (o.name !== n.name) changes.push(`Rename "${o.name || rid}" → "${n.name}"`);
-        for (const side of ['left', 'right', 'sub']) {
+        const oldMono = o.mono !== undefined;
+        const newMono = n.mono !== undefined;
+        if (oldMono !== newMono) {
+            changes.push(`${n.name || rid}: ${oldMono ? 'mono → stereo' : 'stereo → mono'}`);
+        }
+        for (const side of ROOM_SIDES) {
             const oldId = o[side]; const newId = n[side];
             const oldChan = oldId && oldSpeakers[oldId]
                 ? `${oldSpeakers[oldId].amplifier}/ch${oldSpeakers[oldId].channel}` : null;
@@ -749,7 +771,7 @@ function commitAssign(roomId, side, amp, channel) {
     // Strip any orphan that was at (amp, ch)
     for (const [rid, r] of Object.entries(rooms)) {
         if (rid === roomId) continue;
-        for (const s of ['left', 'right', 'sub']) {
+        for (const s of ROOM_SIDES) {
             const sid = r[s];
             if (sid && speakers[sid] && speakers[sid].amplifier === amp && speakers[sid].channel === channel) {
                 delete speakers[sid]; r[s] = null;
@@ -816,11 +838,40 @@ function renameRoom(roomId) {
 function deleteRoom(roomId) {
     const name = rooms[roomId].name || roomId;
     if (!confirm(`Delete room "${name}"? All its cables will be removed.`)) return;
-    for (const side of ['left', 'right', 'sub']) {
+    for (const side of ROOM_SIDES) {
         const spk = rooms[roomId][side];
         if (spk) delete speakers[spk];
     }
     delete rooms[roomId];
+    render();
+}
+
+// Switch a room between stereo (left/right) and mono (single speaker that
+// receives a L+R downmix in ALSA). Both transitions unwire the cables for
+// the old mode — the user re-drags the speaker into the new slot. We don't
+// auto-migrate left→mono because the speaker_id naming changes too (the
+// softvol control name would orphan otherwise).
+function setRoomMono(roomId) {
+    const r = rooms[roomId];
+    if (!r) return;
+    if (r.mono !== undefined) return;
+    for (const side of ['left', 'right', 'sub']) {
+        const sid = r[side];
+        if (sid) delete speakers[sid];
+        delete r[side];
+    }
+    r.mono = null;
+    render();
+}
+
+function setRoomStereo(roomId) {
+    const r = rooms[roomId];
+    if (!r) return;
+    if (r.mono === undefined) return;
+    if (r.mono) delete speakers[r.mono];
+    delete r.mono;
+    r.left = null;
+    r.right = null;
     render();
 }
 
@@ -1350,7 +1401,7 @@ function refreshLedStats() {
     const numRooms = Object.keys(rooms).length;
     let cables = 0;
     for (const r of Object.values(rooms)) {
-        for (const side of ['left', 'right', 'sub']) if (r[side]) cables++;
+        for (const side of ROOM_SIDES) if (r[side]) cables++;
     }
 
     if (roomsLed) roomsLed.textContent = `${String(numRooms).padStart(2, '0')} configured`;

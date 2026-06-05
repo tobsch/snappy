@@ -48,7 +48,7 @@ import json, sys
 c = json.load(open(sys.argv[1]))
 for rid, room in c.get('rooms', {}).items():
     amps = set()
-    for side in ('left', 'right', 'sub'):
+    for side in ('left', 'right', 'sub', 'mono'):
         spk_id = room.get(side)
         if spk_id:
             spk = c.get('speakers', {}).get(spk_id, {})

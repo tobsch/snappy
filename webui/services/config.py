@@ -203,10 +203,9 @@ class ConfigService:
             if speaker.get('amplifier') == amp_id and speaker.get('channel') == channel:
                 # Find which room uses this speaker
                 for room_id, room in self.get_rooms().items():
-                    if room.get('left') == speaker_id:
-                        return {'speaker': speaker_id, 'room': room_id, 'position': 'left', 'room_name': room.get('name', room_id)}
-                    if room.get('right') == speaker_id:
-                        return {'speaker': speaker_id, 'room': room_id, 'position': 'right', 'room_name': room.get('name', room_id)}
+                    for side in ('left', 'right', 'sub', 'mono'):
+                        if room.get(side) == speaker_id:
+                            return {'speaker': speaker_id, 'room': room_id, 'position': side, 'room_name': room.get('name', room_id)}
                 return {'speaker': speaker_id, 'room': None, 'position': None, 'room_name': None}
         return None
 
