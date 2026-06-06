@@ -169,13 +169,15 @@
       "right": "backupkueche_right",
       "zones": [
         "essen"
-      ]
+      ],
+      "max_volume": 0.25
     },
     "einliegerwohnung": {
       "left": "einliegerwohnung_left",
       "name": "Einliegerwohnung",
       "right": "einliegerwohnung_right",
-      "zones": []
+      "zones": [],
+      "max_volume": 0.25
     },
     "elternbad": {
       "left": "elternbad_left",
@@ -183,7 +185,8 @@
       "right": "elternbad_right",
       "zones": [
         "elternbad"
-      ]
+      ],
+      "max_volume": 0.25
     },
     "esszimmer": {
       "left": "esszimmer_left",
@@ -191,7 +194,8 @@
       "right": "esszimmer_right",
       "zones": [
         "essen"
-      ]
+      ],
+      "max_volume": 0.25
     },
     "kinderzimmer_linda": {
       "left": "kinderzimmer_linda_left",
@@ -199,7 +203,8 @@
       "right": "kinderzimmer_linda_right",
       "zones": [
         "linda"
-      ]
+      ],
+      "max_volume": 0.25
     },
     "kinderzimmer_lou": {
       "left": "kinderzimmer_lou_left",
@@ -207,7 +212,8 @@
       "right": "kinderzimmer_lou_right",
       "zones": [
         "louise"
-      ]
+      ],
+      "max_volume": 0.25
     },
     "kueche": {
       "left": "kueche_left",
@@ -215,13 +221,15 @@
       "right": "kueche_right",
       "zones": [
         "essen"
-      ]
+      ],
+      "max_volume": 0.25
     },
     "schlafzimmer": {
       "left": "schlafzimmer_left",
       "name": "Schlafzimmer",
       "right": "schlafzimmer_right",
-      "zones": []
+      "zones": [],
+      "max_volume": 0.25
     },
     "vordach": {
       "left": "vordach_left",
@@ -229,7 +237,8 @@
       "right": "vordach_right",
       "zones": [
         "draussen"
-      ]
+      ],
+      "max_volume": 0.25
     },
     "wohnzimmer": {
       "left": "wohnzimmer_left",
@@ -237,12 +246,14 @@
       "right": "wohnzimmer_right",
       "zones": [
         "wohnen"
-      ]
+      ],
+      "max_volume": 1.0
     },
     "gaestebad": {
       "name": "Gästebad",
       "zones": [],
-      "mono": "gaestebad_mono"
+      "mono": "gaestebad_mono",
+      "max_volume": 0.25
     }
   },
   "zones": {

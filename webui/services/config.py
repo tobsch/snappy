@@ -169,6 +169,24 @@ class ConfigService:
             return True
         return False
 
+    def get_room_max_volume(self, room_id: str) -> float | None:
+        """Per-room max_volume override (0..1), or None if the room inherits
+        global.max_volume."""
+        room = self.get_room(room_id)
+        return None if not room else room.get('max_volume')
+
+    def set_room_max_volume(self, room_id: str, value: float | None) -> bool:
+        """Set (or clear, with None) a room's max_volume override."""
+        rooms = self.config.get('rooms', {})
+        if room_id not in rooms:
+            return False
+        if value is None:
+            rooms[room_id].pop('max_volume', None)
+        else:
+            rooms[room_id]['max_volume'] = max(0.0, min(1.0, float(value)))
+        self.save()
+        return True
+
     # Zones
     def get_zones(self) -> dict:
         return self.config.get('zones', {})

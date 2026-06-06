@@ -657,9 +657,36 @@ function renderRoomSlots() {
                     </div>
                 </div>
                 <div class="room-sides">${sideRows}</div>
+                <div class="room-maxvol" title="Max volume ceiling for this room (caps how loud it can get)">
+                    <span class="room-maxvol-label">MAX</span>
+                    <input type="range" min="0" max="100"
+                           value="${Math.round(((room.max_volume ?? maxVolume) || 0) * 100)}"
+                           oninput="onRoomMaxVolInput('${rid}', this)">
+                    <span class="room-maxvol-num" id="room-maxvol-num-${rid}">${Math.round(((room.max_volume ?? maxVolume) || 0) * 100)}%</span>
+                </div>
             </div>
         `;
     }).join('');
+}
+
+// Per-room max-volume ceiling slider. Debounced POST re-seeds the room's
+// softvols live on the backend (no regen / no sendspin restart).
+const _roomMaxVolTimers = {};
+function onRoomMaxVolInput(rid, input) {
+    const pct = parseInt(input.value, 10);
+    const num = document.getElementById('room-maxvol-num-' + rid);
+    if (num) num.textContent = pct + '%';
+    if (rooms[rid]) rooms[rid].max_volume = pct / 100;
+    clearTimeout(_roomMaxVolTimers[rid]);
+    _roomMaxVolTimers[rid] = setTimeout(async () => {
+        try {
+            const r = await fetch(`/api/config/rooms/${encodeURIComponent(rid)}/max-volume`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({max_volume: pct / 100}),
+            });
+            if (!r.ok) { const d = await r.json().catch(() => ({})); showToast(d.detail || 'Failed to set room max', true); }
+        } catch (e) { showToast('Connection error', true); }
+    }, 350);
 }
 
 // ============================================================

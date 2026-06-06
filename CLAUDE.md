@@ -471,3 +471,10 @@ Volume values in `speaker_config.json` are percentages (0-100) of the `global.ma
 
 For full volume output, set speaker volumes to 100 and adjust `max_volume` as needed.
 
+**Per-room max_volume:** a room may carry its own `max_volume` (0–1) which
+overrides `global.max_volume` for that room only — a per-room ceiling. It's
+applied at the softvol-seeding layer (not baked into `asound.conf`), so the web
+UI's per-room MAX slider sets it live via `POST /api/config/rooms/<id>/max-volume`
+→ re-seeds that room's softvols by amixer (no ALSA regen, no sendspin restart).
+Channel faders are also clamped to the room's effective max.
+

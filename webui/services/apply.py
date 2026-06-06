@@ -256,10 +256,12 @@ async def seed_softvols(config: dict) -> dict[str, str]:
     volume. Control names are vol_<room>_<side>; card is the speaker's amp."""
     speakers = config.get("speakers", {})
     rooms = config.get("rooms", {})
-    max_vol = config.get("global", {}).get("max_volume", 1.0)
+    global_max = config.get("global", {}).get("max_volume", 1.0)
 
     targets = []
     for rid, room in rooms.items():
+        # per-room max_volume caps this room independently; falls back to global
+        room_max = room.get("max_volume", global_max)
         for side in ROOM_SIDES:
             spk_id = room.get(side)
             if not spk_id:
@@ -271,13 +273,47 @@ async def seed_softvols(config: dict) -> dict[str, str]:
             if not card:
                 continue
             ctrl = f"vol_{rid}_{side}"
-            pct = linear_to_amixer_pct(spk.get("volume", 100), max_vol)
+            pct = linear_to_amixer_pct(spk.get("volume", 100), room_max)
             targets.append((card, ctrl, pct))
 
     # Prime each softvol PCM in parallel so kernel controls come into existence
     await asyncio.gather(*(prime_softvol_pcm(ctrl) for _, ctrl, _ in targets))
 
     # Now amixer-set each
+    results: dict[str, str] = {}
+    outs = await asyncio.gather(*(amixer_set(c, ctrl, pct) for c, ctrl, pct in targets))
+    for (_, ctrl, _), ok in zip(targets, outs):
+        results[ctrl] = "ok" if ok else "failed"
+    return results
+
+
+async def seed_room_softvols(config: dict, room_id: str) -> dict[str, str]:
+    """Re-seed a single room's softvols to its (possibly per-room) max_volume.
+    Live amixer only — no ALSA regen, no sendspin restart. Used by the per-room
+    max-volume slider."""
+    speakers = config.get("speakers", {})
+    room = config.get("rooms", {}).get(room_id)
+    if not room:
+        return {}
+    global_max = config.get("global", {}).get("max_volume", 1.0)
+    room_max = room.get("max_volume", global_max)
+
+    targets = []
+    for side in ROOM_SIDES:
+        spk_id = room.get(side)
+        if not spk_id:
+            continue
+        spk = speakers.get(spk_id)
+        if not spk:
+            continue
+        card = spk.get("amplifier")
+        if not card:
+            continue
+        ctrl = f"vol_{room_id}_{side}"
+        pct = linear_to_amixer_pct(spk.get("volume", 100), room_max)
+        targets.append((card, ctrl, pct))
+
+    await asyncio.gather(*(prime_softvol_pcm(ctrl) for _, ctrl, _ in targets))
     results: dict[str, str] = {}
     outs = await asyncio.gather(*(amixer_set(c, ctrl, pct) for c, ctrl, pct in targets))
     for (_, ctrl, _), ok in zip(targets, outs):

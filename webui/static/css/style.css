@@ -1576,6 +1576,29 @@ h2 {
     gap: 4px;
 }
 
+/* Per-room max-volume ceiling slider */
+.room-maxvol {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+}
+.room-maxvol-label {
+    font-size: 0.55rem;
+    letter-spacing: 0.08em;
+    color: #64748b;
+}
+.room-maxvol input[type="range"] { flex: 1; min-width: 60px; height: 3px; }
+.room-maxvol-num {
+    font-size: 0.7rem;
+    color: #94a3b8;
+    font-family: var(--font-mono, monospace);
+    min-width: 34px;
+    text-align: right;
+}
+
 .room-side-row {
     display: flex;
     align-items: center;

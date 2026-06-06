@@ -351,7 +351,10 @@ async def set_channel_volume(request: Request, data: LiveVolumeRequest):
     if not target:
         raise HTTPException(status_code=404, detail="No speaker assigned to that channel")
 
-    max_vol = config_svc.get_max_volume()
+    # Honor the per-room max_volume ceiling (falls back to global) so a channel
+    # fader can't exceed its room's configured maximum.
+    room = config_svc.get_room(target["room"]) or {}
+    max_vol = room.get("max_volume", config_svc.get_max_volume())
     pct = linear_to_amixer_pct(data.volume, max_vol)
     ctrl = f"vol_{target['room']}_{target['side']}"
     ok = await amixer_set(target["card"], ctrl, pct)
@@ -363,6 +366,36 @@ async def set_channel_volume(request: Request, data: LiveVolumeRequest):
         config_svc.set_speaker_volume(spk_id_match, data.volume)
 
     return {"status": "ok", "control": ctrl, "amixer_pct": pct, "saved": bool(spk_id_match)}
+
+
+# === Per-room max volume (ceiling) ===
+
+class RoomMaxVolume(BaseModel):
+    max_volume: float | None = None   # 0..1, or null to inherit global
+
+
+@router.post("/config/rooms/{room_id}/max-volume")
+async def set_room_max_volume(request: Request, room_id: str, data: RoomMaxVolume):
+    """Set (or clear) a room's max_volume ceiling and re-seed its softvols live.
+
+    Pure runtime: max_volume is applied at the softvol-seeding layer, so this
+    re-seeds via amixer — no ALSA regen and no sendspin restart.
+    """
+    config_svc = get_config_service(request)
+    if room_id not in config_svc.get_rooms():
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    config_svc.set_room_max_volume(room_id, data.max_volume)
+    from services.apply import seed_room_softvols
+    seeded = await seed_room_softvols(config_svc.config, room_id)
+    effective = config_svc.get_room(room_id).get("max_volume", config_svc.get_max_volume())
+    return {
+        "status": "ok",
+        "room_id": room_id,
+        "max_volume": data.max_volume,
+        "effective": effective,
+        "seeded": seeded,
+    }
 
 
 # === Test endpoints ===
