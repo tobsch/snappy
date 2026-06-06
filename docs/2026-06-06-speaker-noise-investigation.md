@@ -148,8 +148,49 @@ cat /proc/asound/<amp>/pcm0p/sub0/status   # e.g. amp1
 
 ---
 
+## Findings — confirmed 2026-06-06
+
+The monitor caught **both** problems live, partitioning them cleanly:
+
+### Gästebad / amp3 noise = HARDWARE (EMI)
+Repro: powering amp3 on → noise in Gästebad (mono, amp3 ch3). Monitor showed
+`amp3:closed/pwr=on` — **amp powered, stream closed, no digital signal**, yet
+noise. So it's the amp3 output / the ~20 m Gästebad speaker cable making noise
+with no input → genuine EMI/hardware. The ferrite/shielding/cable-routing
+playbook is the right fix for this one. Software mitigation: keep amp3 SHDN'd
+when Gästebad isn't playing (powermanager already does this), so it's only
+audible during actual playback.
+
+### amp1 "radio static" = SOFTWARE stale-dmix wedge (root cause found)
+Monitor caught amp1 stuck `RUNNING/appl=0/hw=advancing/pwr=on` with `*** WEDGE ***`
+for minutes — the #233 signature, live. Traced via sendspin logs to
+**room_wohnzimmer**: `Stream started with codec flac (48000/24/2)` but **no audio
+chunks** — lox issued a stream-start to Wohnzimmer with no PCM behind it (a
+phantom stream, likely a stuck source from earlier testing). sendspin opened
+ALSA `RUNNING`, dmix looped the stale buffer = noise, and the advancing `hw_ptr`
+kept powermanager from SHDN-ing amp1 (→ the "amps won't idle / 50 W" symptom).
+
+**This is the discriminator proven:** EMI cannot keep an amp powered; a phantom
+stream does both the noise and the stuck-on power.
+
+Recovery that worked: `audio/5/off` (stop Wohnzimmer in lox via :7091) **then**
+`systemctl restart sendspin@room_wohnzimmer`. Restarting the client *alone* did
+NOT clear it — lox re-issued the empty stream-start on reconnect, re-wedging.
+You must stop the zone at the lox side first. After: amp1 `closed`, SHDN off,
+monitor clean.
+
+### Open: why did lox push an empty FLAC stream-start to Wohnzimmer?
+Likely a stuck source/session (Wohnzimmer has a history of Spotify audio-key
+storms — see `memory/project_upstream_bugs.md`). The lox-side "stream-start
+without PCM" wedge + the post-start byte watchdog mitigation are the relevant
+threads. Needs follow-up: catch which source leaves Wohnzimmer in this state.
+
 ## Log
 
+- **2026-06-06 (later)** — Monitor caught a live amp1 WEDGE (Wohnzimmer phantom
+  FLAC stream-start, no PCM). Cleared via `audio/5/off` + client restart →
+  amp1 closed + SHDN off. Gästebad/amp3 noise confirmed HARDWARE (amp on, stream
+  closed). Both root causes now evidenced.
 - **2026-06-06** — Investigation opened. Live snapshot above: all streams
   closed, powermanager active, amp1/2/3 SHDN-off, amp4 always-on. No wedge at
   read time. Hypothesis recorded: radio-static likely software stale-dmix
