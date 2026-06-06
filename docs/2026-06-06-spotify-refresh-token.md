@@ -66,6 +66,8 @@ between sessions zeroes `refreshToken`. Suspects, in order:
 2. **lox restart / image pull / `docker compose up`** rewriting `config.json`.
 3. Token actually expiring/being invalidated and lox blanking it.
 
+**Tested 2026-06-06: a plain `docker restart lox-audioserver` does NOT wipe the token** (SET 134 before and after) — so suspect #2 (lox restart) is ruled out; the wiper is the Miniserver-reconnect rebuild (#1) or an image pull/recreate (#3).
+
 To pin it: snapshot `refreshToken` now, then check it after (a) a lox restart,
 (b) a Miniserver reconnect, (c) overnight. Whichever blanks it is the culprit.
 Until then, expect to re-auth periodically.
