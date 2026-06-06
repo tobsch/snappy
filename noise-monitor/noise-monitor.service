@@ -1,0 +1,13 @@
+[Unit]
+Description=Speaker-noise monitor (amp stream/power state sampler)
+After=sound.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/noise-monitor.sh
+Restart=always
+RestartSec=5
+User=tobias
+
+[Install]
+WantedBy=multi-user.target
