@@ -80,6 +80,18 @@ patches). Observed 2026-06-06 at ~99 `context is not available`/60s during
 startup; it eventually caught and played. That's its own thread, not solved by
 re-auth.
 
+## 2026-06-06 isolation: AirPlay works, Spotify doesn't
+
+After the re-auth, Spotify still couldn't sustain audio (started → `appl_ptr=0`
+starved stream on amp1, both Esszimmer and Wohnzimmer = account-wide). **AirPlay
+on the same speakers worked immediately.** That cleanly isolates the remaining
+fault: lox → sendspin → ALSA → amp → speaker chain is **healthy**; the token is
+fixed (`SET (134)`, survived sendspin client restarts); the only broken part is
+**Spotify Connect**, stuck in the `context is not available` / `reason=replace`
+churn (librespot context-loss). So: use AirPlay meanwhile; Spotify Connect needs
+the deep librespot fix, not a token re-auth. Recovery for a starved Spotify
+stream: `audio/<zoneId>/off` (port 7091) + `systemctl restart sendspin@room_<id>`.
+
 ## References
 
 - `memory/project_upstream_bugs.md` — "Spotify account had EMPTY refreshToken",
