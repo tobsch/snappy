@@ -31,7 +31,7 @@
       "sample_rate": 48000,
       "lox_input_id": "linein",
       "name": "USB Line-In",
-      "autostart": true
+      "autostart": false
     }
   },
   "speakers": {
