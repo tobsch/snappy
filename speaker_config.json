@@ -7,17 +7,17 @@
     "amp1": {
       "card": "amp1",
       "channels": 8,
-      "gpio": 27
+      "gpio": 14
     },
     "amp2": {
       "card": "amp2",
       "channels": 8,
-      "gpio": 22
+      "gpio": 15
     },
     "amp3": {
       "card": "amp3",
       "channels": 8,
-      "gpio": 17
+      "gpio": 18
     },
     "amp4": {
       "card": "amp4",
@@ -37,126 +37,48 @@
   "speakers": {
     "backupkueche_left": {
       "amplifier": "amp1",
-      "channel": 3,
+      "channel": 6,
       "latency": 0,
       "volume": 100
     },
     "backupkueche_right": {
       "amplifier": "amp1",
-      "channel": 4,
-      "latency": 0,
-      "volume": 100
-    },
-    "einliegerwohnung_left": {
-      "amplifier": "amp3",
-      "channel": 1,
-      "latency": 0,
-      "volume": 100
-    },
-    "einliegerwohnung_right": {
-      "amplifier": "amp3",
-      "channel": 2,
+      "channel": 5,
       "latency": 0,
       "volume": 100
     },
     "elternbad_left": {
-      "amplifier": "amp2",
-      "channel": 4,
+      "amplifier": "amp1",
+      "channel": 1,
       "latency": 0,
       "volume": 100
     },
     "elternbad_right": {
-      "amplifier": "amp2",
-      "channel": 3,
-      "latency": 0,
-      "volume": 100
-    },
-    "esszimmer_left": {
       "amplifier": "amp1",
-      "channel": 5,
-      "latency": 0,
-      "volume": 100
-    },
-    "esszimmer_right": {
-      "amplifier": "amp1",
-      "channel": 6,
-      "latency": 0,
-      "volume": 100
-    },
-    "kinderzimmer_linda_left": {
-      "amplifier": "amp2",
-      "channel": 5,
-      "latency": 0,
-      "volume": 100
-    },
-    "kinderzimmer_linda_right": {
-      "amplifier": "amp2",
-      "channel": 6,
-      "latency": 0,
-      "volume": 100
-    },
-    "kinderzimmer_lou_left": {
-      "amplifier": "amp2",
-      "channel": 7,
-      "latency": 0,
-      "volume": 100
-    },
-    "kinderzimmer_lou_right": {
-      "amplifier": "amp2",
-      "channel": 8,
+      "channel": 2,
       "latency": 0,
       "volume": 100
     },
     "kueche_left": {
       "amplifier": "amp1",
-      "channel": 1,
+      "channel": 7,
       "latency": 0,
       "volume": 100
     },
     "kueche_right": {
       "amplifier": "amp1",
-      "channel": 2,
-      "latency": 0,
-      "volume": 100
-    },
-    "schlafzimmer_left": {
-      "amplifier": "amp2",
-      "channel": 1,
-      "latency": 0,
-      "volume": 100
-    },
-    "schlafzimmer_right": {
-      "amplifier": "amp2",
-      "channel": 2,
-      "latency": 0,
-      "volume": 100
-    },
-    "vordach_left": {
-      "amplifier": "amp3",
-      "channel": 5,
-      "latency": 0,
-      "volume": 100
-    },
-    "vordach_right": {
-      "amplifier": "amp3",
-      "channel": 6,
-      "latency": 0,
-      "volume": 100
-    },
-    "wohnzimmer_left": {
-      "amplifier": "amp1",
-      "channel": 7,
-      "latency": 0,
-      "volume": 100
-    },
-    "wohnzimmer_right": {
-      "amplifier": "amp1",
       "channel": 8,
       "latency": 0,
       "volume": 100
     },
-    "gaestebad_mono": {
-      "amplifier": "amp3",
+    "kinderzimmer_linda_left": {
+      "amplifier": "amp1",
+      "channel": 4,
+      "volume": 100,
+      "latency": 0
+    },
+    "kinderzimmer_linda_right": {
+      "amplifier": "amp1",
       "channel": 3,
       "volume": 100,
       "latency": 0
@@ -165,95 +87,95 @@
   "rooms": {
     "backupkueche": {
       "left": "backupkueche_left",
+      "max_volume": 0.25,
       "name": "Backupkueche",
       "right": "backupkueche_right",
       "zones": [
         "essen"
-      ],
-      "max_volume": 0.25
+      ]
     },
     "einliegerwohnung": {
-      "left": "einliegerwohnung_left",
+      "left": null,
+      "max_volume": 0.25,
       "name": "Einliegerwohnung",
-      "right": "einliegerwohnung_right",
-      "zones": [],
-      "max_volume": 0.25
+      "right": null,
+      "zones": []
     },
     "elternbad": {
       "left": "elternbad_left",
+      "max_volume": 0.25,
       "name": "Elternbad",
       "right": "elternbad_right",
       "zones": [
         "elternbad"
-      ],
-      "max_volume": 0.25
+      ]
     },
     "esszimmer": {
-      "left": "esszimmer_left",
+      "left": null,
+      "max_volume": 0.25,
       "name": "Esszimmer",
-      "right": "esszimmer_right",
+      "right": null,
       "zones": [
         "essen"
-      ],
-      "max_volume": 0.25
+      ]
+    },
+    "gaestebad": {
+      "max_volume": 0.25,
+      "mono": null,
+      "name": "Gästebad",
+      "zones": []
     },
     "kinderzimmer_linda": {
       "left": "kinderzimmer_linda_left",
+      "max_volume": 0.25,
       "name": "Kinderzimmer Linda",
       "right": "kinderzimmer_linda_right",
       "zones": [
         "linda"
-      ],
-      "max_volume": 0.25
+      ]
     },
     "kinderzimmer_lou": {
-      "left": "kinderzimmer_lou_left",
+      "left": null,
+      "max_volume": 0.25,
       "name": "Kinderzimmer Lou",
-      "right": "kinderzimmer_lou_right",
+      "right": null,
       "zones": [
         "louise"
-      ],
-      "max_volume": 0.25
+      ]
     },
     "kueche": {
       "left": "kueche_left",
+      "max_volume": 0.51,
       "name": "Kueche",
       "right": "kueche_right",
       "zones": [
         "essen"
-      ],
-      "max_volume": 0.25
+      ]
     },
     "schlafzimmer": {
-      "left": "schlafzimmer_left",
+      "left": null,
+      "max_volume": 0.25,
       "name": "Schlafzimmer",
-      "right": "schlafzimmer_right",
-      "zones": [],
-      "max_volume": 0.25
+      "right": null,
+      "zones": []
     },
     "vordach": {
-      "left": "vordach_left",
+      "left": null,
+      "max_volume": 0.25,
       "name": "Vordach",
-      "right": "vordach_right",
+      "right": null,
       "zones": [
         "draussen"
-      ],
-      "max_volume": 0.25
+      ]
     },
     "wohnzimmer": {
-      "left": "wohnzimmer_left",
+      "left": null,
+      "max_volume": 1,
       "name": "Wohnzimmer",
-      "right": "wohnzimmer_right",
+      "right": null,
       "zones": [
         "wohnen"
-      ],
-      "max_volume": 1.0
-    },
-    "gaestebad": {
-      "name": "Gästebad",
-      "zones": [],
-      "mono": "gaestebad_mono",
-      "max_volume": 0.25
+      ]
     }
   },
   "zones": {

@@ -189,9 +189,14 @@ Amplifier power is controlled via GPIO SHDN (shutdown) pins on the Raspberry Pi,
 
 | Amp  | GPIO | Pin |
 |------|------|-----|
-| amp1 | 27   | 13  |
-| amp2 | 22   | 15  |
-| amp3 | 17   | 11  |
+| amp1 | 14   | 8   |
+| amp2 | 15   | 10  |
+| amp3 | 18   | 12  |
+
+Common SHDN GND for all amps → header **Pin 6** (GND). GPIO14/15 are the UART
+pins but safe here (Pi-5 serial console is on the separate ttyAMA10 debug port,
+not GPIO14/15). Changed from 27/22/17 on 2026-06-10 to cluster the wiring
+(Pins 6/8/10/12 adjacent).
 
 Use `ampctl` CLI:
 ```bash
@@ -334,13 +339,18 @@ ampctl off                 # Disable all amps
 - **Volume control**: `max_volume` in config limits ALSA ttable coefficient. Per-speaker volume is percentage of max.
 - **Cross-device stereo**: Left speaker on amp1, right on amp2 - handled by ALSA multi plugin.
 
-### Current Amp-to-USB Mapping (as of 2026-04)
+### Current Amp-to-USB Mapping (re-identified 2026-06-10, all amps re-cabled via hub)
 
-| Amp   | USB Path                              | Primary Rooms |
-|-------|---------------------------------------|---------------|
-| amp1  | platform-xhci-hcd.1-usb-0:2:1.1       | Küche         |
-| amp2  | platform-xhci-hcd.0-usb-0:1:1.1       | Wohnzimmer, Esszimmer |
-| amp3  | platform-xhci-hcd.0-usb-0:2:1.1       | Backupküche, others |
+| Amp   | USB Path                              | GPIO/Pin (SHDN) | Primary Rooms |
+|-------|---------------------------------------|-----------------|---------------|
+| amp1  | platform-xhci-hcd.1-usb-0:1.1:1.1     | GPIO14 / Pin 8  | Küche         |
+| amp2  | platform-xhci-hcd.1-usb-0:1.3:1.1     | GPIO15 / Pin 10 | Wohnzimmer, Esszimmer |
+| amp3  | platform-xhci-hcd.0-usb-0:1:1.1       | GPIO18 / Pin 12 | Backupküche, others |
+| amp4  | platform-xhci-hcd.1-usb-0:1.4:1.0     | — (always on)   | line-in (C-Media) |
+
+SHDN is active-low and needs a common GND to a Pi GND pin (e.g. Pin 14). Paths
+re-identified 2026-06-10 by unplugging all amps and plugging them in one-by-one;
+the udev rule `devconfig/99-wondom-gab8.rules` matches these.
 
 To identify which amp is which, play a test tone on a specific channel:
 ```bash
@@ -382,11 +392,35 @@ WARNING:sendspin.daemon.daemon:Connection error (ClientConnectorError)
 
 ### Loud noise or distortion from speakers
 
-This usually happens after lox-audioserver restarts while sendspin is playing:
+Real, but tied to **Spotify Connect** (the librespot context-loss churn —
+`context is not available` / `reason=replace`, unfixed upstream). Other sources
+(AirPlay) play clean. The exact mechanism is **open**: it may be a detached
+stale-dmix loop OR garbage/format churn through a *live* stream — not pinned down.
+
+**Do NOT diagnose this from `/proc/asound/<amp>/pcm0p/sub0/status`.** The
+`RUNNING` + `appl_ptr 0` + `hw_ptr advancing` reading is **normal shared-dmix
+playback**, not a wedge fingerprint (retracted 2026-06-08). On a shared dmix the
+single `sub0` substream's `owner_pid` is the audio-thread **TID** of whichever
+client opened the dmix (looks "dead" to `ps -p` but isn't), and `appl_ptr 0` is
+the dmix master's normal state while audio plays. The reliable test is **your
+ears + source state**: garbage *while no zone is intentionally playing on that
+amp*. If any room on the amp plays cleanly, there is no active wedge (a true
+detached loop would corrupt the shared mix for every room on it).
+
+Recovery if genuinely stuck (confirm by ear first — this also interrupts any
+healthy playback on the amp): stop the zone lox-side, then restart the client.
 ```bash
-# Restart the affected sendspin service to clear corrupted audio state
+curl -s localhost:7091/audio/<zoneId>/off        # zone ids: see below
 sudo systemctl restart sendspin@room_kueche
 ```
+A dmix is shared across all rooms on one amp (amp1 = backupkueche/esszimmer/
+kueche/wohnzimmer).
+
+**Note on the post-start watchdog** (dev image, 2026-06-08): it tears down a
+stream-start that delivers *zero* PCM bytes within 5s. That's a real but narrow
+case — it has **not fired** in observation (heavy churn, yet PCM does flow:
+`first pcm chunk`), so it is likely NOT the fix for this noise. Cheap insurance,
+not a proven cure. See `docs/2026-06-08-spotify-connect-noise-watchdog.md`.
 
 ### ALSA mixer resets after power cycle
 

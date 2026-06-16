@@ -7,3 +7,6 @@ test.wav
 lox-audioserver/
 # Binary patches for upstream addons (built locally, regenerated from PRs).
 lox-patches/
+# OpenSCAD render scratch (verification PNGs, regenerable from the .scad).
+hardware/**/v_*.png
+hardware/v_*.png

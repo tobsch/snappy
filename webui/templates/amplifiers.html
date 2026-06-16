@@ -7,9 +7,41 @@
     /* Let the rack span the full viewport width; nav bar has its own padding */
     body { background: #0a0a0a; }
     main.container { max-width: 100%; padding: 1.25rem 1.5rem; }
+
+    /* --- Tabs --- */
+    .tab-nav { display:flex; gap:.5rem; margin:0 0 1rem; }
+    .tab-btn { font-family:'VT323',monospace; font-size:1.3rem; letter-spacing:1px;
+        background:#111; color:#7c9a7c; border:1px solid #243024; padding:.2rem 1.2rem;
+        cursor:pointer; border-radius:4px; }
+    .tab-btn.active { color:#0a0a0a; background:#4ade80; border-color:#4ade80; }
+    .tab-pane.hidden { display:none; }
+
+    /* --- System tab --- */
+    .sys-grid { display:grid; grid-template-columns:repeat(2,minmax(280px,1fr)); gap:1rem; margin-bottom:1rem; }
+    .sys-card { background:#0e120e; border:1px solid #1e2a1e; border-radius:6px;
+        padding:.75rem 1rem; font-family:'VT323',monospace; color:#9fb89f; }
+    .sys-card-head { display:flex; justify-content:space-between; align-items:baseline;
+        font-size:1.2rem; letter-spacing:1px; color:#6f8f6f; margin-bottom:.4rem; }
+    .sys-val { font-size:1.9rem; color:#4ade80; }
+    .sys-val.warn { color:#f59e0b; } .sys-val.crit { color:#ef4444; }
+    #lox-state.up { color:#4ade80; } #lox-state.down { color:#ef4444; }
+    .sys-graph { width:100%; height:120px; display:block; }
+    .sys-meta { display:flex; flex-direction:column; gap:.45rem; font-size:1.35rem; justify-content:center; }
+    .sys-meta span { color:#cfe8cf; }
+    .lox-info { font-size:1.35rem; line-height:1.55; margin:.3rem 0 .8rem; }
+    .lox-info span { color:#cfe8cf; }
+    .lox-actions { display:flex; gap:.5rem; }
+    @media (max-width:720px){ .sys-grid{ grid-template-columns:1fr; } }
 </style>
 
 <h1 class="rack-title">Amplifiers</h1>
+
+<div class="tab-nav">
+    <button type="button" class="tab-btn active" id="tabbtn-rack" onclick="showTab('rack')">RACK</button>
+    <button type="button" class="tab-btn" id="tabbtn-system" onclick="showTab('system')">SYSTEM</button>
+</div>
+
+<div id="tab-rack" class="tab-pane">
 
 <!-- Pending changes bar -->
 <div id="pending-bar" class="pending-bar hidden">
@@ -318,6 +350,41 @@
         </form>
     </div>
 </div>
+</div><!-- /tab-rack -->
+
+<div id="tab-system" class="tab-pane hidden">
+    <div class="sys-grid">
+        <div class="sys-card">
+            <div class="sys-card-head"><span>CPU TEMP</span><span class="sys-val" id="m-temp">–</span></div>
+            <canvas class="sys-graph" id="g-temp"></canvas>
+        </div>
+        <div class="sys-card">
+            <div class="sys-card-head"><span>CPU LOAD</span><span class="sys-val" id="m-cpu">–</span></div>
+            <canvas class="sys-graph" id="g-cpu"></canvas>
+        </div>
+        <div class="sys-card">
+            <div class="sys-card-head"><span>MEMORY</span><span class="sys-val" id="m-mem">–</span></div>
+            <canvas class="sys-graph" id="g-mem"></canvas>
+        </div>
+        <div class="sys-card sys-meta">
+            <div>LOAD AVG: <span id="m-load">–</span></div>
+            <div>UPTIME: <span id="m-uptime">–</span></div>
+            <div>THROTTLE: <span id="m-throttle">–</span></div>
+        </div>
+    </div>
+
+    <div class="sys-card lox-card">
+        <div class="sys-card-head"><span>LOX-AUDIOSERVER</span><span class="sys-val" id="lox-state">–</span></div>
+        <div class="lox-info">
+            <div>Image: <span id="lox-image">–</span></div>
+            <div>Started: <span id="lox-started">–</span></div>
+            <div>Health: <span id="lox-health">–</span></div>
+        </div>
+        <div class="lox-actions">
+            <button class="btn btn-primary" id="lox-restart-btn" onclick="restartLox()" type="button">Restart</button>
+        </div>
+    </div>
+</div><!-- /tab-system -->
 
 <script>
 // ============================================================
@@ -1700,5 +1767,120 @@ loadInputStatus();
 setInterval(loadAmpPower, 5000);
 setInterval(loadSendspinStatus, 4000);
 setInterval(loadInputStatus, 5000);
+
+// ============================================================
+// System tab: live host metrics (temp/cpu/mem graphs) + lox status
+// ============================================================
+(function(){
+    const MAXPTS = 90, POLL_MS = 2000;
+    let metricsTimer = null, loxTimer = null;
+
+    function Spark(canvasId, opts){ this.c = document.getElementById(canvasId); this.opts = opts; this.data = []; }
+    Spark.prototype.push = function(v){
+        this.data.push((v == null || isNaN(v)) ? null : v);
+        if (this.data.length > MAXPTS) this.data.shift();
+        this.draw();
+    };
+    Spark.prototype.draw = function(){
+        const c = this.c; if (!c) return;
+        const dpr = window.devicePixelRatio || 1;
+        const w = c.clientWidth || 600, h = c.clientHeight || 120;
+        if (w === 0) return; // hidden
+        if (c.width !== w*dpr || c.height !== h*dpr){ c.width = w*dpr; c.height = h*dpr; }
+        const ctx = c.getContext('2d');
+        ctx.setTransform(dpr,0,0,dpr,0,0);
+        ctx.clearRect(0,0,w,h);
+        ctx.strokeStyle = 'rgba(74,222,128,0.12)'; ctx.lineWidth = 1;
+        for (let i=1;i<4;i++){ const y=h*i/4; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+        const lo = this.opts.min, hi = this.opts.max, n = this.data.length;
+        if (n < 2) return;
+        ctx.strokeStyle = this.opts.color || '#4ade80'; ctx.lineWidth = 1.6;
+        ctx.beginPath(); let started = false;
+        for (let i=0;i<n;i++){
+            const v = this.data[i]; if (v == null){ started = false; continue; }
+            const x = (i/(MAXPTS-1))*w;
+            const yv = Math.max(lo, Math.min(hi, v));
+            const y = h - ((yv-lo)/(hi-lo))*h;
+            if (!started){ ctx.moveTo(x,y); started = true; } else ctx.lineTo(x,y);
+        }
+        ctx.stroke();
+    };
+
+    const gTemp = new Spark('g-temp', {min:30, max:90, color:'#4ade80'});
+    const gCpu  = new Spark('g-cpu',  {min:0,  max:100, color:'#60a5fa'});
+    const gMem  = new Spark('g-mem',  {min:0,  max:100, color:'#f59e0b'});
+
+    function fmtUptime(s){
+        if (s == null) return '–';
+        const d=Math.floor(s/86400), h=Math.floor((s%86400)/3600), m=Math.floor((s%3600)/60);
+        return (d? d+'d ':'') + h + 'h ' + m + 'm';
+    }
+    function setVal(id, txt, cls){
+        const el = document.getElementById(id); if (!el) return;
+        el.textContent = txt; el.classList.remove('warn','crit'); if (cls) el.classList.add(cls);
+    }
+
+    async function pollMetrics(){
+        try {
+            const m = await (await fetch('/api/system/metrics')).json();
+            const t = m.temp_c;
+            setVal('m-temp', t!=null ? t.toFixed(1)+' °C' : '–', t>=75?'crit':(t>=60?'warn':null));
+            gTemp.push(t);
+            const cpu = m.cpu_percent;
+            setVal('m-cpu', cpu!=null ? cpu.toFixed(0)+' %' : '–', cpu>=85?'crit':(cpu>=60?'warn':null));
+            gCpu.push(cpu);
+            const pu = m.mem_total_mb ? (m.mem_used_mb/m.mem_total_mb*100) : 0;
+            setVal('m-mem', m.mem_total_mb ? Math.round(m.mem_used_mb)+' / '+Math.round(m.mem_total_mb)+' MB ('+pu.toFixed(0)+'%)' : '–', pu>=90?'crit':(pu>=75?'warn':null));
+            gMem.push(pu);
+            document.getElementById('m-load').textContent = (m.load||[]).join('  ') || '–';
+            document.getElementById('m-uptime').textContent = fmtUptime(m.uptime_s);
+            const thrEl = document.getElementById('m-throttle');
+            const thr = m.throttled || '';
+            thrEl.textContent = thr || '–';
+            thrEl.style.color = (thr && thr !== '0x0') ? '#f59e0b' : '#4ade80';
+        } catch(e) {}
+    }
+
+    async function pollLox(){
+        try {
+            const l = await (await fetch('/api/system/lox')).json();
+            const st = document.getElementById('lox-state');
+            st.textContent = (l.status||'?').toUpperCase();
+            st.className = 'sys-val ' + (l.running ? 'up' : 'down');
+            document.getElementById('lox-image').textContent = l.image || '–';
+            document.getElementById('lox-started').textContent = l.started ? new Date(l.started).toLocaleString() : '–';
+            document.getElementById('lox-health').textContent = l.health || 'none';
+        } catch(e) {}
+    }
+
+    window.restartLox = async function(){
+        if (!confirm('lox-audioserver neu starten? Kurze Audio-Unterbrechung in allen Zonen.')) return;
+        const btn = document.getElementById('lox-restart-btn');
+        const old = btn.textContent; btn.disabled = true; btn.textContent = 'Restarting…';
+        try {
+            const r = await fetch('/api/system/lox/restart', {method:'POST'});
+            if (!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(e.detail || r.statusText); }
+            window.showToast && window.showToast('lox-audioserver wird neu gestartet…');
+        } catch(e) {
+            window.showToast && window.showToast('Restart fehlgeschlagen: ' + e.message, true);
+        }
+        setTimeout(()=>{ btn.disabled = false; btn.textContent = old; pollLox(); }, 4000);
+    };
+
+    window.showTab = function(name){
+        document.getElementById('tab-rack').classList.toggle('hidden', name !== 'rack');
+        document.getElementById('tab-system').classList.toggle('hidden', name !== 'system');
+        document.getElementById('tabbtn-rack').classList.toggle('active', name === 'rack');
+        document.getElementById('tabbtn-system').classList.toggle('active', name === 'system');
+        if (name === 'system'){
+            pollMetrics(); pollLox();
+            if (!metricsTimer) metricsTimer = setInterval(pollMetrics, POLL_MS);
+            if (!loxTimer) loxTimer = setInterval(pollLox, 5000);
+        } else {
+            if (metricsTimer){ clearInterval(metricsTimer); metricsTimer = null; }
+            if (loxTimer){ clearInterval(loxTimer); loxTimer = null; }
+        }
+    };
+})();
 </script>
 {% endblock %}

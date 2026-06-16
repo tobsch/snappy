@@ -94,8 +94,20 @@ churn (librespot context-loss). So: use AirPlay meanwhile; Spotify Connect needs
 the deep librespot fix, not a token re-auth. Recovery for a starved Spotify
 stream: `audio/<zoneId>/off` (port 7091) + `systemctl restart sendspin@room_<id>`.
 
+## Not the token: the 2026-06-08 "loud noise" recurrence
+
+On 2026-06-08 Wohnzimmer + Elternbad made loud noise on Spotify Connect **with
+the refresh token SET (134 chars)** — so it was NOT this bug. It was the
+stale-dmix wedge fed by the context-loss churn, made worse because the
+**post-start watchdog mitigation had been dropped** in the 2026-06-07 dev-image
+migration. Re-applied and resolved — see
+`docs/2026-06-08-spotify-connect-noise-watchdog.md`. Keep the two distinct:
+empty-token = "plays but silent"; missing-watchdog = "plays as loud noise".
+
 ## References
 
 - `memory/project_upstream_bugs.md` — "Spotify account had EMPTY refreshToken",
   the context-loss saga, lox issue #252
 - `docs/2026-06-06-speaker-noise-investigation.md` — the amp1 wedge this feeds
+- `docs/2026-06-08-spotify-connect-noise-watchdog.md` — the missing-watchdog
+  recurrence + fix

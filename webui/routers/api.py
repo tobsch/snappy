@@ -774,3 +774,137 @@ async def test_input(request: Request, input_id: str, data: InputTestRequest):
     if proc.returncode != 0:
         raise HTTPException(status_code=500, detail="Capture or playback failed")
     return {"status": "ok", "input": input_id, "target": target, "seconds": seconds}
+
+
+# ----------------------------------------------------------------------------
+# System tab: live host metrics + lox-audioserver status/control
+# ----------------------------------------------------------------------------
+
+def _read_file(path: str) -> str:
+    try:
+        with open(path) as f:
+            return f.read()
+    except Exception:
+        return ""
+
+
+def _cpu_times():
+    """(total, idle) jiffies from /proc/stat first line, or None."""
+    line = _read_file("/proc/stat").splitlines()
+    if not line:
+        return None
+    parts = line[0].split()[1:]
+    try:
+        vals = [int(x) for x in parts]
+    except ValueError:
+        return None
+    idle = vals[3] + (vals[4] if len(vals) > 4 else 0)  # idle + iowait
+    return sum(vals), idle
+
+
+@router.get("/system/metrics")
+async def system_metrics(request: Request):
+    """Live host metrics for the System tab (temp, CPU%, memory, load, throttle)."""
+    import asyncio
+
+    # CPU temperature
+    temp_c = None
+    raw = _read_file("/sys/class/thermal/thermal_zone0/temp").strip()
+    if raw.isdigit():
+        temp_c = round(int(raw) / 1000.0, 1)
+
+    # CPU usage % over a short window
+    cpu_percent = None
+    a = _cpu_times()
+    await asyncio.sleep(0.2)
+    b = _cpu_times()
+    if a and b:
+        dt, di = b[0] - a[0], b[1] - a[1]
+        if dt > 0:
+            cpu_percent = round((1 - di / dt) * 100, 1)
+
+    # Memory (MB)
+    mem = {}
+    for ln in _read_file("/proc/meminfo").splitlines():
+        k, _, v = ln.partition(":")
+        mem[k.strip()] = v.strip()
+
+    def _kb(key):
+        try:
+            return int(mem.get(key, "0").split()[0])
+        except Exception:
+            return 0
+
+    mem_total = _kb("MemTotal")
+    mem_used = mem_total - _kb("MemAvailable")
+
+    load = _read_file("/proc/loadavg").split()[:3]
+    up = _read_file("/proc/uptime").split()
+    uptime_s = int(float(up[0])) if up else None
+
+    # Pi throttle flags
+    throttled = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "vcgencmd", "get_throttled",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )
+        out, _ = await proc.communicate()
+        throttled = (out.decode().strip().split("=")[-1] or None)
+    except Exception:
+        pass
+
+    return {
+        "temp_c": temp_c,
+        "cpu_percent": cpu_percent,
+        "mem_used_mb": round(mem_used / 1024.0, 1),
+        "mem_total_mb": round(mem_total / 1024.0, 1),
+        "load": load,
+        "uptime_s": uptime_s,
+        "throttled": throttled,
+    }
+
+
+@router.get("/system/lox")
+async def lox_status(request: Request):
+    """lox-audioserver Docker container status."""
+    import asyncio
+    import json as jsonlib
+
+    proc = await asyncio.create_subprocess_exec(
+        "docker", "inspect", "lox-audioserver",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    out, err = await proc.communicate()
+    if proc.returncode != 0:
+        return {"status": "absent", "running": False,
+                "error": err.decode().strip()[:200]}
+    try:
+        data = jsonlib.loads(out.decode())[0]
+    except Exception:
+        return {"status": "unknown", "running": False}
+    state = data.get("State", {}) or {}
+    health = state.get("Health") or {}
+    return {
+        "status": state.get("Status"),
+        "running": bool(state.get("Running")),
+        "started": state.get("StartedAt"),
+        "image": (data.get("Config", {}) or {}).get("Image"),
+        "health": health.get("Status") or "none",
+    }
+
+
+@router.post("/system/lox/restart")
+async def lox_restart(request: Request):
+    """Restart the lox-audioserver container."""
+    import asyncio
+
+    proc = await asyncio.create_subprocess_exec(
+        "docker", "restart", "lox-audioserver",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    _, err = await proc.communicate()
+    if proc.returncode != 0:
+        raise HTTPException(status_code=500,
+                            detail=f"docker restart failed: {err.decode().strip()[:300]}")
+    return {"status": "ok", "restarted": "lox-audioserver"}
