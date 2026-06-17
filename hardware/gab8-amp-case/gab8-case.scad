@@ -45,14 +45,34 @@ lid_csk_d      = 6.0;   // M3 countersunk head Ø, 90deg
 lid_lip        = 0.8;   // outer wall lip (wall 1.6 -> ledge 0.8)
 lid_clear      = 0.3;   // gap around the recessed lid
 
-/* lid vents */
-vent_slot_w = 3.0; vent_rib_w = 3.0; vent_margin = 12.0;
+/* lid vent style: "particles" (scattered halftone speaker) | "bloom" (rings) */
+lid_style      = "particles";
+lid_bubbles    = true;   // master enable for either lid vent style
 
-/* lid speaker SYMBOL (engraved into the top, 1mm less filament there) */
-lid_motif    = true;
-motif_w      = 70;     // overall width of the loudspeaker icon
-motif_depth  = 1.0;    // engraving depth (= 1mm less filament; < lid_th)
-motif_vents  = true;   // make the symbol air-permeable (arcs cut through + cone perforated)
+/* --- "bloom": concentric rings of holes growing from the driver outward --- */
+bub_cx_frac    = 0.50;   // focal point (driver) X as fraction of lid width
+bub_cy_frac    = 0.50;   // focal point Y as fraction of lid depth
+bub_ring_pitch = 10.0;   // radial spacing between bubble rings
+bub_d_min      = 2.6;    // hole Ø at the centre
+bub_d_max      = 7.0;    // hole Ø at the rim (clamped)
+bub_d_gain     = 0.052;  // Ø growth per mm of radius
+bub_arc_gap    = 3.6;    // min web between holes along a ring
+bub_edge_marg  = 9.0;    // keep holes this far in from the lid edge
+bub_post_keep  = 8.0;    // keep-out radius around each corner screw
+
+/* --- "particles": diffuse scattered bubbles; big ones inside the speaker
+   silhouette form it as a halftone, fine ones fade out into a particle cloud --- */
+par_seed       = 11;     // RNG seed (change for a different scatter)
+par_pitch      = 6.5;    // jittered-grid cell size (base spacing)
+par_jit        = 1.5;    // max random offset from the cell centre (wilder = larger)
+par_bg_min     = 1.4;    // background particle Ø range (the diffuse cloud)
+par_bg_max     = 2.6;
+par_bg_keep    = 0.52;   // base fraction of background particles kept
+par_fade       = 70.0;   // distance over which the cloud thins out (diffuse)
+par_spk_min    = 3.0;    // speaker-fill particle Ø range (the halftone core)
+par_spk_max    = 5.0;
+par_spk_w      = 120;    // overall width of the speaker silhouette on the lid
+par_spk_halo   = 2.2;    // clear the diffuse cloud this far around the icon
 
 /* --------- derived geometry (BEFORE connectors: they depend on it) ------- */
 inner_w = board_w + 2*clear_xy;
@@ -186,57 +206,98 @@ module base() {
 }
 
 /* -------------------------------- lid ------------------------------------ */
-module vent_slots() {
-  pitch = vent_slot_w + vent_rib_w;
-  n = floor((outer_d - 2*vent_margin) / pitch);
+// 2D rounded rectangle spanning (0,0)..(w,d)
+module rrect2d(w,d,r){ hull() for(x=[r,w-r]) for(y=[r,d-r]) translate([x,y]) circle(r=r,$fn=48); }
+
+// where bubbles are ALLOWED: lid plate inset by the edge margin, minus a
+// keep-out disc around each corner screw post
+module bubble_allowed_2d() {
+  lo=lid_lip+lid_clear; m=bub_edge_marg; o=post_od/2-1.0;
   difference() {
-    union() for (i=[0:n-1])
-      translate([vent_margin, vent_margin + i*pitch, -0.1]) cube([outer_w - 2*vent_margin, vent_slot_w, lid_th+0.2]);
-    if (lid_motif) translate([outer_w/2, outer_d/2, -1]) cylinder(h=lid_th+2, d=motif_w+10, $fn=90);  // clear slots around the symbol
+    translate([lo+m, lo+m]) rrect2d(outer_w-2*(lo+m), outer_d-2*(lo+m), 4);
+    for (x=[wall+o, outer_w-wall-o]) for (y=[wall+o, outer_d-wall-o])
+      translate([x,y]) circle(r=bub_post_keep, $fn=40);
   }
 }
-// loudspeaker symbol (2D, centred): magnet/body + cone + 3 sound-wave arcs
-module spk_icon_2d(w) {
+// concentric rings of holes growing outward from the focal point (overshoots
+// the plate; clipped by bubble_allowed_2d). Alternate rings staggered.
+module bubble_field_2d() {
+  cx=outer_w*bub_cx_frac; cy=outer_d*bub_cy_frac;
+  rmax = max(cx,outer_w-cx) + max(cy,outer_d-cy);
+  nr = ceil(rmax/bub_ring_pitch);
+  circle(d=bub_d_min, $fn=24);                                   // driver hub
+  for (k=[1:nr]) {
+    r = k*bub_ring_pitch;
+    d = min(bub_d_max, bub_d_min + r*bub_d_gain);
+    n = max(6, floor(2*PI*r/(d+bub_arc_gap)));
+    off = (k%2)*0.5;                                             // brick stagger
+    for (i=[0:n-1]) { a=360*(i+off)/n;
+      translate([cx+r*cos(a), cy+r*sin(a)]) circle(d=d, $fn=max(18,floor(d*6))); }
+  }
+}
+// clip field to the allowed region, then OPEN (erode+dilate) to drop the thin
+// edge slivers left by clipping -> only clean holes remain
+module bubble_holes_2d() {
+  offset(r=0.7) offset(r=-0.7) intersection() { bubble_field_2d(); bubble_allowed_2d(); }
+}
+
+// filled loudspeaker silhouette (body + cone + 3 thick sound arcs), width w
+module spk_solid_2d(w) {
   union() {
-    translate([-w*0.45, -w*0.12]) square([w*0.12, w*0.24]);                              // magnet/body
-    polygon([[-w*0.33,-w*0.12],[-w*0.33,w*0.12],[-w*0.14,w*0.27],[-w*0.14,-w*0.27]]);    // cone
-    for (i=[1:3]) {
-      R=w*(0.05+i*0.11); t=w*0.028;
-      intersection() {
-        difference() { circle(R+t/2,$fn=96); circle(R-t/2,$fn=96); }
-        polygon([[-w*0.1,0],[w,w],[w,-w]]);                                              // right-opening wedge
+    translate([-w*0.42,-w*0.13]) square([w*0.13, w*0.26]);                                 // magnet body
+    polygon([[-w*0.30,-w*0.13],[-w*0.30,w*0.13],[-w*0.10,w*0.30],[-w*0.10,-w*0.30]]);       // cone
+    for (i=[1:3]) { R=w*(0.06+i*0.13); t=w*0.055;
+      intersection() { difference(){ circle(R+t/2,$fn=80); circle(R-t/2,$fn=80); }
+                       polygon([[-w*0.05,0],[w,w],[w,-w]]); } }                              // sound arcs
+  }
+}
+// jittered-grid particle field. kind="bg": diffuse cloud, density fades with
+// distance from centre; kind="spk": dense larger bubbles (clipped to the icon)
+module particle_grid_2d(kind) {
+  cx=outer_w/2; cy=outer_d/2;
+  nx=ceil(outer_w/par_pitch); ny=ceil(outer_d/par_pitch);
+  R=rands(0,1,nx*ny*4, par_seed);
+  for (iy=[0:ny-1]) for (ix=[0:nx-1]) {
+    b=(iy*nx+ix)*4;
+    px=(ix+0.5)*par_pitch + (R[b]-0.5)*2*par_jit;
+    py=(iy+0.5)*par_pitch + (R[b+1]-0.5)*2*par_jit;
+    if (kind=="spk") {
+      translate([px,py]) circle(d=par_spk_min+(par_spk_max-par_spk_min)*R[b+3], $fn=22);
+    } else {
+      keep = par_bg_keep * (1 - 0.65*min(1, norm([px-cx,py-cy])/par_fade));   // fade out
+      if (R[b+2] < keep)
+        translate([px,py]) circle(d=par_bg_min+(par_bg_max-par_bg_min)*R[b+3], $fn=16);
+    }
+  }
+}
+module particle_holes_2d() {
+  offset(r=0.5) offset(r=-0.5)                                     // open: drop edge/clip slivers
+  intersection() {
+    union() {
+      difference() {                                              // diffuse cloud, but cleared out of the icon (halo)
+        particle_grid_2d("bg");
+        translate([outer_w/2, outer_d/2]) offset(r=par_spk_halo) spk_solid_2d(par_spk_w);
+      }
+      intersection() {                                            // icon filled by the clean halftone
+        particle_grid_2d("spk");
+        translate([outer_w/2, outer_d/2]) spk_solid_2d(par_spk_w);
       }
     }
+    bubble_allowed_2d();
   }
 }
-// air-permeable parts: arcs cut THROUGH + cone perforated like a membrane
-module spk_vents_2d(w) {
-  for (i=[1:3]) {                                   // the 3 sound-wave arcs (through)
-    R=w*(0.05+i*0.11); t=w*0.028;
-    intersection() {
-      difference() { circle(R+t/2,$fn=96); circle(R-t/2,$fn=96); }
-      polygon([[-w*0.1,0],[w,w],[w,-w]]);
-    }
-  }
-  intersection() {                                  // cone perforation (membrane look)
-    polygon([[-w*0.33,-w*0.12],[-w*0.33,w*0.12],[-w*0.14,w*0.27],[-w*0.14,-w*0.27]]);
-    for (gx=[-w*0.34 : w*0.055 : 0]) for (gy=[-w*0.28 : w*0.055 : w*0.28])
-      translate([gx,gy]) circle(d=w*0.032, $fn=16);
-  }
+module lid_bubble_cut() {
+  translate([0,0,-1]) linear_extrude(lid_th+2)
+    if (lid_style=="particles") particle_holes_2d(); else bubble_holes_2d();
 }
-// engrave the symbol 1mm relief, and (optionally) cut the air-permeable parts through
-module lid_speaker() {
-  translate([outer_w/2, outer_d/2, lid_th-motif_depth]) linear_extrude(motif_depth+1) spk_icon_2d(motif_w);
-  if (motif_vents) translate([outer_w/2, outer_d/2, -1]) linear_extrude(lid_th+2) spk_vents_2d(motif_w);
-}
+
 // recessed lid: inset plate dropping into the rebate, M3 countersunk holes
 module lid() {
   lo  = lid_lip + lid_clear;            // inset from the outer edge
   csk = (lid_csk_d - lid_screw_d)/2;    // 90deg countersink depth
   difference() {
     translate([lo, lo, 0]) rounded_box(outer_w-2*lo, outer_d-2*lo, lid_th, 3);
-    vent_slots();
-    if (lid_motif) lid_speaker();
+    if (lid_bubbles) lid_bubble_cut();
     corner_posts() {
       translate([0,0,-0.1]) cylinder(h=lid_th+0.2, d=lid_screw_d);                       // through
       translate([0,0,lid_th-csk]) cylinder(h=csk+0.1, d1=lid_screw_d, d2=lid_csk_d);     // countersink (top)
